@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SpyKit</title>
+  <link href="css/bootstrap.css" rel="stylesheet">
+  <link href="css/main.css" rel="stylesheet">
+  <style id="settings"></style>
+</head>
+<body>
+
+<div class="search-bar-top">
+  <input type="text" id="search-requests" placeholder="Search requests..." autocomplete="off">
+  <label class="regex-toggle"><input type="checkbox" id="search-regex"> Regex</label>
+  <button id="theme-toggle" class="btn btn-xs btn-default" type="button" title="Toggle theme">☀</button>
+  <button id="shortcuts-btn" class="btn btn-xs btn-default" type="button" title="Keyboard shortcuts">?</button>
+  <button id="record-btn" class="btn btn-xs btn-default" type="button" title="Record requests">⏺</button>
+  <button id="export-all-btn" class="btn btn-xs btn-default" type="button">Export ▾</button>
+  <div id="export-dropdown" class="export-dropdown" style="display:none">
+    <div data-format="postman">Postman Collection</div>
+    <div data-format="har">HAR</div>
+    <div data-format="csv">CSV</div>
+    <div data-format="python">Python (requests)</div>
+    <div data-format="fetch">JavaScript (fetch)</div>
+    <div data-format="http">HTTP (.http)</div>
+  </div>
+</div>
+
+<table>
+  <thead>
+  <tr class="filter"></tr>
+  </thead>
+  <tbody class="requests">
+  </tbody>
+</table>
+
+<img class="spy" src="images/spy16.png"/>
+
+<div class="split-area">
+  <div class="transparent">
+  </div>
+  <div class="details">
+
+    <form class="form-inline">
+
+      <input id="form-id" type="hidden" value="0">
+
+      <div class="top-controls">
+
+        <div class="form-method-clear"></div>
+
+        <div class="form-group limited form-method">
+          <label for="form-method">Request:</label>
+          <select id="form-method" class="form-control">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PATCH</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+            <option>OPTIONS</option>
+            <option>TRACE</option>
+            <option>CONNECT</option>
+            <option>HEAD</option>
+          </select>
+        </div>
+
+        <div class="clearfix form-status-clear"></div>
+
+        <div class="form-group limited form-status">
+          <label for="form-status">Answer status:</label>
+          <input id="form-status" class="form-control" readonly value="">
+          <div class="hint"><p id="hint">Payment Required</p></div>
+        </div>
+
+        <div class="clearfix form-time-clear"></div>
+
+        <div class="form-group limited form-time">
+          <label for="form-time">Time:</label>
+          <input id="form-time" class="form-control" readonly value="">
+        </div>
+
+        <div class="buttons">
+          <button id="form-cancel" class="btn btn-default" type="button">Cancel</button>
+          <button id="form-send" class="btn btn-success" type="button">
+            <div class="loader"></div>
+            Send
+          </button>
+        </div>
+
+        <div class="body-search-bar-top">
+          <input type="text" id="search-body" placeholder="Search in response body..." autocomplete="off">
+          <button id="body-search-btn" class="btn btn-xs btn-primary" type="button">Search</button>
+          <span id="body-search-count" class="search-count"></span>
+        </div>
+
+      </div>
+
+      <div class="clearfix"></div>
+
+      <div class="other-controls">
+
+        <div class="form-group">
+            <div class="url-actions" style="margin-bottom:4px">
+            <select id="copy-format">
+              <option value="curl">cURL</option>
+              <option value="python">Python</option>
+              <option value="fetch">JavaScript fetch</option>
+              <option value="go">Go</option>
+              <option value="rust">Rust</option>
+              <option value="php">PHP</option>
+            </select>
+            <button id="copy-curl-btn" class="btn btn-xs btn-default" type="button">Copy</button>
+            <button id="export-postman-btn" class="btn btn-xs btn-default" type="button">Export Postman</button>
+            <button id="import-curl-btn" class="btn btn-xs btn-default" type="button">Import cURL</button>
+            <button id="query-params-btn" class="btn btn-xs btn-default" type="button" title="Edit query parameters">🔗 Params</button>
+            <button id="open-browser-btn" class="btn btn-xs btn-default" type="button" title="Open in browser">🌐</button>
+          </div>
+          <label for="form-url">URL:</label>
+          <textarea autofocus id="form-url" class="form-control" rows="1" cols="50"></textarea>
+          <div id="query-params-editor" style="display:none;margin-top:4px"></div>
+          <textarea id="import-curl-input" class="form-control" rows="2" cols="50" placeholder="Paste curl command here..." style="display:none;margin-top:4px"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-headers" class="collapse-label"><span class="collapse-icon">−</span> Request headers:</label>
+          <textarea id="form-headers" class="form-control" rows="2" cols="50"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-body" class="collapse-label"><span class="collapse-icon">−</span> Request body:</label>
+          <textarea id="form-body" rows="2" cols="50" class="form-control"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="form-headers2" class="collapse-label"><span class="collapse-icon">−</span> Answer headers:
+            <span id="security-summary" class="security-summary"></span>
+            <span id="cors-summary" class="cors-summary"></span>
+            <button id="share-btn" class="btn btn-xs btn-default" type="button" style="display:none" title="Copy share link">🔗</button>
+          </label>
+          <div id="cookie-inspector" class="cookie-inspector" style="display:none"></div>
+          <textarea id="form-headers2" class="form-control" rows="2" cols="50" readonly></textarea>
+        </div>
+
+        <div class="form-group">
+          <label id="form-label-body2" class="collapse-label"><span class="collapse-icon">−</span> Answer body:
+            <span id="secrets-warning" class="secrets-warning"></span>
+            <button id="body-hex-btn" class="btn btn-xs btn-default" type="button" style="display:none">Hex</button>
+          </label>
+          <textarea id="form-body2" rows="2" cols="50" class="form-control" readonly></textarea>
+          <div id="form-body2-preview" class="body-preview" style="display:none"></div>
+          <div id="form-body2-image"></div>
+        </div>
+
+        <div class="form-group">
+          <label></label>
+          <div><div id="result"></div></div>
+        </div>
+
+      </div>
+
+    </form>
+  </div>
+</div>
+
+<div class="shortcuts-modal" id="shortcuts-modal" style="display:none">
+  <div class="shortcuts-header">
+    <span>Keyboard Shortcuts</span>
+    <button id="shortcuts-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <table>
+    <tr><td><kbd>Ctrl+F</kbd></td><td>Search requests</td></tr>
+    <tr><td><kbd>Ctrl+Shift+F</kbd></td><td>Search in response body</td></tr>
+    <tr><td><kbd>Ctrl+Enter</kbd></td><td>Send request</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cancel request</td></tr>
+    <tr><td><kbd>Ctrl+Click</kbd></td><td>Compare two responses (diff)</td></tr>
+    <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Save collection</td></tr>
+    <tr><td><kbd>Ctrl+Shift+E</kbd></td><td>Toggle environment variables</td></tr>
+    <tr><td><kbd>Ctrl+Shift+H</kbd></td><td>Toggle REST history</td></tr>
+    <tr><td><kbd>Ctrl+Shift+K</kbd></td><td>Toggle snippets</td></tr>
+    <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>Toggle mock responses</td></tr>
+    <tr><td><kbd>Ctrl+Shift+W</kbd></td><td>Toggle workspaces</td></tr>
+    <tr><td><kbd>Ctrl+Shift+V</kbd></td><td>Toggle viewport bar</td></tr>
+    <tr><td><kbd>Ctrl+Shift+R</kbd></td><td>Start/stop recording</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Show this panel</td></tr>
+  </table>
+</div>
+
+<div class="env-panel" id="env-panel" style="display:none">
+  <div class="env-header">
+    <span>Environment Variables</span>
+    <button id="env-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <select id="env-select" class="form-control">
+    <option value="__new__">+ New Environment</option>
+  </select>
+  <div id="env-table-wrap">
+    <table id="env-table">
+      <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+      <tbody id="env-rows"></tbody>
+    </table>
+  </div>
+  <button id="env-add-row" class="btn btn-xs btn-default">+ Add Variable</button>
+</div>
+
+<div class="snippets-panel" id="snippets-panel" style="display:none">
+  <div class="env-header">
+    <span>Snippets</span>
+    <button id="snippets-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <div style="margin-bottom:6px">
+    <input type="text" id="snippet-name" placeholder="Snippet name..." style="width:150px">
+    <button id="snippet-save" class="btn btn-xs btn-default">Save Current</button>
+  </div>
+  <div id="snippet-list"></div>
+</div>
+
+<div class="workspaces-panel" id="workspaces-panel" style="display:none">
+  <div class="env-header">
+    <span>Workspaces</span>
+    <button id="workspaces-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <div style="margin-bottom:6px">
+    <input type="text" id="workspace-name" placeholder="Workspace name..." style="width:150px">
+    <button id="workspace-save" class="btn btn-xs btn-default">Save</button>
+  </div>
+  <div id="workspace-list"></div>
+</div>
+
+<div class="mock-panel" id="mock-panel" style="display:none">
+  <div class="env-header">
+    <span>Mock Responses</span>
+    <button id="mock-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <div style="margin-bottom:6px">
+    <input type="text" id="mock-url" placeholder="URL pattern..." style="width:200px">
+    <select id="mock-status" style="width:70px"><option>200</option><option>404</option><option>500</option></select>
+    <button id="mock-add" class="btn btn-xs btn-default">Add</button>
+  </div>
+  <div id="mock-list"></div>
+</div>
+
+<div class="history-panel" id="history-panel" style="display:none">
+  <div class="env-header">
+    <span>REST History</span>
+    <button id="history-close" class="btn btn-xs btn-default">&times;</button>
+  </div>
+  <input type="text" id="history-search" placeholder="Filter history..." style="width:100%;box-sizing:border-box;margin-bottom:6px">
+  <div id="history-list" style="max-height:300px;overflow-y:auto"></div>
+</div>
+
+<div class="scroll-up" id="scroll-up">⇧<span></span></div>
+<div class="new-request" id="new-request">+<span>new</span></div>
+<div id="page-controls" class="page-controls" style="display:none">
+  <button id="page-prev" class="btn btn-xs btn-default">◀ Prev</button>
+  <span id="page-info"></span>
+  <button id="page-next" class="btn btn-xs btn-default">Next ▶</button>
+</div>
+<script src="js/jquery-1.11.0.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/main.js"></script>
+<script src="js/autosize.min.js"></script>
+<script src="js/split.min.js"></script>
+<script src="js/pretty-data.js"></script>
+</body>
+</html>

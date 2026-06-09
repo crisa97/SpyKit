@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "SpyKit",
+  "version": "2.0.0",
+  "description": "HTTP debugging, security analysis & REST client. Inspect requests/responses, search, filter, export (cURL/HAR/Postman/CSV), REST client, security headers, CORS, cookies, hex view, diff, collections, env vars, snippets, mocks, rate limiter, recording, workspaces, theme toggle, and more.",
+  "icons": {
+    "16": "images/spy16.png",
+    "32": "images/spy32.png",
+    "48": "images/spy48.png",
+    "128": "images/spy128.png"
+  },
+  "background": {
+    "service_worker": "js/bg.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start",
+      "js": ["js/content.js"]
+    }
+  ],
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "devtools_page": "devtools.html",
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
