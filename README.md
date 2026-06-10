@@ -14,6 +14,8 @@ HTTP debugging, security analysis & REST client — todo en el panel DevTools de
 1. Abrí **Chrome DevTools** (`F12` o `Ctrl+Shift+I`)
 2. Andá al tab **Spy**
 3. Todas las requests HTTP de la página aparecen en la tabla
+4. Click en cualquier fila para ver detalle (URL, headers, body, respuesta)
+5. Usá los botones de acción para fuzzear, repetir, decodificar, etc.
 
 ---
 
@@ -22,33 +24,80 @@ HTTP debugging, security analysis & REST client — todo en el panel DevTools de
 ### 🔍 Request/Response Inspector
 - Tabla con método, URL, status, tipo, tamaño, tiempo
 - Search con regex (busca en headers, body, respuesta)
-- Body search (solo en cuerpos request/response)
-- Highlight de matches con overlay visual
+- Body search (solo en cuerpos request/response) con highlight y overlay
 - Auto-scroll al primer match
 - Filtros por status, método, tipo, tamaño, tiempo
-- Sort por columnas
 - Paginación (200 requests por página)
 
 ### 🔐 Security Analysis
-- **Security Headers**: detecta HSTS, X-Content-Type-Options, X-Frame-Options, CSP, X-XSS-Protection, Referrer-Policy, Permissions-Policy
-- **CORS Inspector**: analiza Access-Control-Allow-Origin, Allow-Credentials, Allow-Methods, Allow-Headers
-- **Cookie Inspector**: tabla con HttpOnly, Secure, SameSite
-- **Secret Detection**: encuentra API keys, JWTs, Bearer tokens, AWS keys, GitHub tokens, passwords
-- **GraphQL Detection**: detecta queries/mutations en respuestas
+- **Security Headers**: HSTS, X-Content-Type-Options, X-Frame-Options, CSP, X-XSS-Protection, Referrer-Policy, Permissions-Policy
+- **CORS Inspector**: Access-Control-Allow-Origin, Allow-Credentials, Allow-Methods, Allow-Headers
+- **Cookie Inspector**: HttpOnly, Secure, SameSite
+- **Secret Detection**: API keys, JWTs, Bearer tokens, AWS keys, GitHub tokens, passwords
+- **JWT Inspector**: decode automático, análisis de algoritmo (none, HS256, etc.), expiración
+- **Auth Analyzer**: Bearer, Basic, cookies flags, API keys en URL
+- **Passive Reflection Scanner**: detecta SQLi/XSS/Path Traversal reflejados en respuestas
 
 ### 🌐 REST Client
 - Métodos: GET, POST, PATCH, PUT, DELETE, HEAD, OPTIONS
 - Headers y body editables
-- Editor visual de query params (tabla key=value)
-- Rate limiter (∞/500ms/1s/2s) al lado del botón Send
-- Environment variables (`{{var}}` reemplazadas automáticamente)
-- Syntax highlighting (JSON/XML) en respuesta
-- Preview toggle para respuesta
+- Rate limiter (∞/500ms/1s/2s)
+- Environment variables (`{{var}}`)
+- Syntax highlighting (JSON/XML)
+- Preview toggle
+
+### ⚡ Fuzzer
+- **Botón ⚡ Fuzz** en URL actions
+- **Posiciones**: URL Parameter | JSON Body Key
+- **Same value** checkbox (payload se concatena al valor existente)
+- Payloads: SQL Injection (14), XSS (8), Path Traversal (5)
+- Barra de progreso + resultados en tabla coloreada
+- **Export CSV** de resultados
+- Auto-detecta JSON body → usa JSON Body Key automáticamente
+- Doble click en fila → carga URL en editor
+
+### 🔁 Repeater
+- **Botón 🔄 Repeat** en URL actions
+- Repite N veces (1–50) el request actual
+- Resultados: status, size, time, preview
+- **Export CSV** de resultados
+- **Clear** para limpiar resultados
+
+### 🎯 Intruder
+- **Botón 🎯 Intruder** en URL actions
+- **Posiciones**: URL Parameter | URL Path | Request Body | JSON Body Key | Header Value
+- **Payloads predefinidos**: SQLi, XSS, Path Traversal, Numbers 0-100, Common Usernames, Common Passwords, Blank/Null
+- **Custom payloads**: guardar/cargar desde localStorage
+- **Same value** checkbox (payload se concatena al valor existente)
+- **Ejecución concurrente** (default 5 en paralelo)
+- Barra de progreso con % y barra animada
+- **Export CSV** de resultados
+- Auto-detecta JSON body → usa JSON Body Key automáticamente
+
+### 🔎 Decoder
+- **Botón 🔍 Decode** en URL actions
+- Auto-Detect: Base64, URL, HTML entities, Hex, JWT
+- Botones manuales: JWT, Base64, URL, Hex
+- Output redimensionable para valores grandes
+- Mismo formato preservado
+
+### 🌐 WebSocket Inspector
+- **Botón 🌐 WS** en search bar
+- Captura conexiones WebSocket (open, send, message, close, error)
+- Muestra historial de mensajes con dirección (↑ sent / ↓ received)
+- Conexiones activas/cerradas
+- Atajo: `Ctrl+Shift+9`
+
+### 📊 Session Compare
+- **Botón ≠ Sessions** en search bar
+- Toma snapshots del estado actual de requests
+- Compara dos sesiones: Added (verde), Removed (rojo), Changed (diff línea por línea)
+- Atajo: `Ctrl+Shift+S`
 
 ### 📤 Export
 | Formato | Botón | Archivo |
 |---|---|---|
-| cURL | Copy > cURL | — (clipboard) |
+| CURL | Copy > CURL | — (clipboard) |
 | Python (requests) | Copy > Python | — |
 | JavaScript (fetch) | Copy > JS | — |
 | Go | Copy > Go | — |
@@ -59,71 +108,56 @@ HTTP debugging, security analysis & REST client — todo en el panel DevTools de
 | CSV | Export > CSV | spykit.csv |
 | HTTP (.http) | Export > HTTP | spykit.http |
 | Snippet generator | Panel Snippets | — |
+| Fuzzer CSV | Fuzzer > Export CSV | fuzzer-results.csv |
+| Repeater CSV | Repeater > Export CSV | repeater-results.csv |
+| Intruder CSV | Intruder > Export CSV | intruder-results.csv |
 
 ### ⭐ Pinned / Bookmarks
 - Click en ☆ de una fila para marcarla
 - Click en ☆ del header para filtrar solo marcadas
 - Persiste entre sesiones (localStorage)
-- Doble click en × para pin/unpin también
+- Doble click en × para pin/unpin
 
 ### 💾 Collections
 - `Ctrl+Shift+S`: guardá requests seleccionadas (click en × para seleccionar)
-- Se guardan en chrome.storage.local
-- Persisten entre sesiones
+- Persisten en chrome.storage.local
 
 ### 📦 Workspaces
-- `Ctrl+Shift+W`: abrí el panel de workspaces
+- `Ctrl+Shift+W`: panel de workspaces
 - Guardá/cargá sets de requests
-- Útil para organizar proyectos
 
 ### 📋 Snippets
-- `Ctrl+Shift+K`: panel de snippets para REST Client
+- `Ctrl+Shift+K`: panel de snippets
 - Guardá presets de URL + headers + body
-- Reutilizables con un click
 
 ### 🎭 Mock Responses
 - `Ctrl+Shift+M`: panel de mocks
 - Interceptá URLs con status y body falsos
-- Ideal para testing sin backend
 
 ### 🚫 Domain Blocking
-- Click derecho en una fila > **Block domain**
+- Click derecho > **Block domain**
 - Las requests de ese dominio se ocultan
-- Configurable desde localStorage
 
 ### ⏺ Recording
-- Botón ⏺ en la search bar
-- `Ctrl+Shift+R` para toggle
-- Captura todas las requests mientras está activo
-- Al detener, copia el resumen al clipboard
+- Botón ⏺ en search bar, `Ctrl+Shift+R`
+- Captura requests mientras está activo
+- Al detener, copia resumen al clipboard
 
 ### 📐 Viewport Breakpoints
-- `Ctrl+Shift+V`: muestra barra de viewports
-- Mobile (375px), Tablet (768px), Desktop (100%)
-- Cambia el tamaño del panel al toque
+- `Ctrl+Shift+V`: barra de viewports
+- Mobile (375px), Tablet (768px), Desktop
 
 ### ↔️ Diff View
 - `Ctrl+Click` en dos requests
-- Muestra diff palabra por palabra entre respuestas
-- Resaltado de líneas agregadas/eliminadas
+- Diff palabra por palabra entre respuestas
 
 ### 🔲 Hex View
 - Botón "Hex" en respuesta body
-- Muestra el contenido en hexadecimal + ASCII
+- Modo hexadecimal + ASCII
 
 ### 🎨 Light/Dark Theme
-- Botón ☀/☾ en la toolbar
+- Botón ☀/☾ en toolbar
 - Persiste en localStorage
-- Cubre todos los elementos UI
-
-### 🎯 Otros
-- **Unsaved changes indicator**: punto naranja si cambiás algo en REST Client
-- **Collapsible sections**: headers y body labels colapsables con ±
-- **Tooltips**: en badges de seguridad, CORS, cookies
-- **Context menu**: click derecho en fila → Reenviar, Copy cURL, Copy URL, Open in browser, Block domain, Export to Postman
-- **Pin column**: doble click en × para pin, persiste
-- **Import cURL**: botón para pegar un curl y llenar URL/headers/body
-- **Waterfall timings** ~~eliminado~~
 
 ---
 
@@ -136,7 +170,7 @@ HTTP debugging, security analysis & REST client — todo en el panel DevTools de
 | `Ctrl+Enter` | Send REST request |
 | `Esc` | Cerrar panels/modal |
 | `Ctrl+Click` | Seleccionar para Diff |
-| `Ctrl+Shift+S` | Save collection |
+| `Ctrl+Shift+S` | Save collection **/ Session compare** |
 | `Ctrl+Shift+E` | Toggle env vars panel |
 | `Ctrl+Shift+H` | Toggle history panel |
 | `Ctrl+Shift+W` | Toggle workspaces |
@@ -144,15 +178,26 @@ HTTP debugging, security analysis & REST client — todo en el panel DevTools de
 | `Ctrl+Shift+M` | Toggle mocks |
 | `Ctrl+Shift+R` | Toggle recording |
 | `Ctrl+Shift+V` | Toggle viewport bar |
+| `Ctrl+Shift+9` | Toggle WebSocket inspector |
+| `?` | Toggle shortcuts modal |
 
 ---
 
 ## Tests
 
 ```bash
-node tests/main.js
+npm test
 ```
 
-14 tests unitarios: parseCurl, formatSize, scanForSecrets, toHexDump, escapeHtml.
+41 tests unitarios en 5 archivos: utils, jwt, auth, scanner, websocket.
 
+---
 
+## Tech Stack
+
+- TypeScript (~35 módulos)
+- Vite (IIFE bundle)
+- jQuery 1.11 + Bootstrap
+- Split.js, autosize.js, pretty-data.js
+- Chrome DevTools API (`chrome.devtools.network`, `chrome.devtools.inspectedWindow`)
+- Manifest V3

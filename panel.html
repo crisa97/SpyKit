@@ -102,7 +102,7 @@
         <div class="form-group">
             <div class="url-actions" style="margin-bottom:4px">
             <select id="copy-format">
-              <option value="curl">cURL</option>
+              <option value="curl">CURL</option>
               <option value="python">Python</option>
               <option value="fetch">JavaScript fetch</option>
               <option value="go">Go</option>
@@ -111,14 +111,10 @@
             </select>
             <button id="copy-curl-btn" class="btn btn-xs btn-default" type="button">Copy</button>
             <button id="export-postman-btn" class="btn btn-xs btn-default" type="button">Export Postman</button>
-            <button id="import-curl-btn" class="btn btn-xs btn-default" type="button">Import cURL</button>
-            <button id="query-params-btn" class="btn btn-xs btn-default" type="button" title="Edit query parameters">🔗 Params</button>
             <button id="open-browser-btn" class="btn btn-xs btn-default" type="button" title="Open in browser">🌐</button>
           </div>
           <label for="form-url">URL:</label>
           <textarea autofocus id="form-url" class="form-control" rows="1" cols="50"></textarea>
-          <div id="query-params-editor" style="display:none;margin-top:4px"></div>
-          <textarea id="import-curl-input" class="form-control" rows="2" cols="50" placeholder="Paste curl command here..." style="display:none;margin-top:4px"></textarea>
         </div>
 
         <div class="form-group">
@@ -257,7 +253,7 @@
 </div>
 <script src="js/jquery-1.11.0.min.js"></script>
 <script src="js/bootstrap.min.js"></script>
-<script src="js/main.js"></script>
+<script src="js/main.bundle.js"></script>
 <script src="js/autosize.min.js"></script>
 <script src="js/split.min.js"></script>
 <script src="js/pretty-data.js"></script>
