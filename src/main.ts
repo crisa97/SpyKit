@@ -18,6 +18,7 @@ import { initSnippetsUI, renderSnippetList } from './rest/snippets';
 import { initWSPanel } from './ui/ws-panel';
 import { initSessionCompare } from './ui/session-compare';
 import { restorePinState } from './ui/pins';
+import { detachInterceptor } from './interceptor/intercept';
 
 // Expose values for legacy event handler access via window
 (window as any).values = values;
@@ -113,6 +114,11 @@ $(function () {
   initSnippetsUI();
   initWSPanel();
   initSessionCompare();
+
+  // Detach interceptor when the panel unloads
+  window.addEventListener('beforeunload', () => {
+    detachInterceptor();
+  });
 
   // Mark script as loaded
   (window as any).spykitLoaded = true;

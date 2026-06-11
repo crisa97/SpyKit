@@ -15,6 +15,7 @@
   <button id="theme-toggle" class="btn btn-xs btn-default" type="button" title="Toggle theme">☀</button>
   <button id="shortcuts-btn" class="btn btn-xs btn-default" type="button" title="Keyboard shortcuts">?</button>
   <button id="record-btn" class="btn btn-xs btn-default" type="button" title="Record requests">⏺</button>
+  <button id="intercept-btn" class="btn btn-xs btn-default" type="button" title="Toggle request interception">⏸ Intercept</button>
   <button id="export-all-btn" class="btn btn-xs btn-default" type="button">Export ▾</button>
   <div id="export-dropdown" class="export-dropdown" style="display:none">
     <div data-format="postman">Postman Collection</div>
@@ -24,6 +25,17 @@
     <div data-format="fetch">JavaScript (fetch)</div>
     <div data-format="http">HTTP (.http)</div>
   </div>
+</div>
+
+<div id="intercept-panel" class="intercept-panel" style="display:none">
+  <div class="intercept-header">
+    <span class="intercept-title">Intercepted (<span id="intercept-count">0</span>)</span>
+    <div class="intercept-header-actions">
+      <button id="intercept-forward-all" class="btn btn-xs btn-success">Forward All</button>
+      <button id="intercept-drop-all" class="btn btn-xs btn-danger">Drop All</button>
+    </div>
+  </div>
+  <div id="intercept-queue" class="intercept-queue"></div>
 </div>
 
 <table>
@@ -246,6 +258,41 @@
 
 <div class="scroll-up" id="scroll-up">⇧<span></span></div>
 <div class="new-request" id="new-request">+<span>new</span></div>
+<div id="intercept-edit-overlay" class="intercept-edit-overlay" style="display:none">
+  <div class="intercept-edit-dialog">
+    <div class="intercept-edit-header">
+      <span>Edit Intercepted Request</span>
+      <button id="intercept-edit-close" class="btn btn-xs btn-default">&times;</button>
+    </div>
+    <input type="hidden" id="intercept-edit-id" value="">
+    <div class="intercept-edit-body">
+      <div class="form-group">
+        <label>URL:</label>
+        <input type="text" id="intercept-edit-url" class="form-control">
+      </div>
+      <div class="form-group">
+        <label>Method:</label>
+        <select id="intercept-edit-method" class="form-control">
+          <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Headers:</label>
+        <textarea id="intercept-edit-headers" class="form-control" rows="4"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Body:</label>
+        <textarea id="intercept-edit-body" class="form-control" rows="6"></textarea>
+      </div>
+    </div>
+    <div class="intercept-edit-actions">
+      <button id="intercept-edit-forward" class="btn btn-success">Forward</button>
+      <button id="intercept-edit-drop" class="btn btn-danger">Drop</button>
+      <button id="intercept-edit-cancel" class="btn btn-default">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="page-controls" class="page-controls" style="display:none">
   <button id="page-prev" class="btn btn-xs btn-default">◀ Prev</button>
   <span id="page-info"></span>

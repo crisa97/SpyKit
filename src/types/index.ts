@@ -103,6 +103,16 @@ export interface RowSpec {
   [key: string]: string | string[] | undefined;
 }
 
+export interface InterceptedRequest {
+  id: number;
+  requestId: string;
+  url: string;
+  method: string;
+  headers: Array<{ name: string; value: string }>;
+  postData?: string;
+  timestamp: number;
+}
+
 export interface CORSResult {
   status: string;
   html: string;

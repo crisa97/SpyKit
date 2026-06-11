@@ -107,7 +107,7 @@
   function setSplitRatio(r) {
     splitRatio = r;
   }
-  function escapeHtml(str) {
+  function escapeHtml$1(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   function formatSize(bytes) {
@@ -762,7 +762,7 @@
     const env = values.envs[values.envName] || {};
     let html = "";
     for (const key in env) {
-      html += '<tr><td><input class="env-key" value="' + escapeHtml(key) + '"></td><td><input class="env-val" value="' + escapeHtml(env[key]) + '"></td><td><button class="env-del">&times;</button></td></tr>';
+      html += '<tr><td><input class="env-key" value="' + escapeHtml$1(key) + '"></td><td><input class="env-val" value="' + escapeHtml$1(env[key]) + '"></td><td><button class="env-del">&times;</button></td></tr>';
     }
     $("#env-rows").html(html);
   }
@@ -826,7 +826,7 @@
     const hist = values.restHistory || [];
     let html = "";
     for (let i = 0; i < hist.length; i++) {
-      html += '<div class="history-item" data-idx="' + i + '"><b>' + hist[i].method + "</b> " + escapeHtml(hist[i].url.substring(0, 100)) + ' <span style="color:#888">' + new Date(hist[i].ts).toLocaleTimeString() + "</span></div>";
+      html += '<div class="history-item" data-idx="' + i + '"><b>' + hist[i].method + "</b> " + escapeHtml$1(hist[i].url.substring(0, 100)) + ' <span style="color:#888">' + new Date(hist[i].ts).toLocaleTimeString() + "</span></div>";
     }
     $("#history-list").html(html || '<div style="color:#888;padding:8px">No history</div>');
   }
@@ -992,12 +992,12 @@
     let lastIdx = 0;
     let idx = 0;
     while ((idx = lowerText.indexOf(lowerTerm, idx)) >= 0) {
-      html += escapeHtml(text.substring(lastIdx, idx));
-      html += '<mark class="body-highlight">' + escapeHtml(text.substring(idx, idx + term.length)) + "</mark>";
+      html += escapeHtml$1(text.substring(lastIdx, idx));
+      html += '<mark class="body-highlight">' + escapeHtml$1(text.substring(idx, idx + term.length)) + "</mark>";
       idx += term.length;
       lastIdx = idx;
     }
-    html += escapeHtml(text.substring(lastIdx));
+    html += escapeHtml$1(text.substring(lastIdx));
     const $parent = $ta.parent();
     $parent.css("position", "relative");
     const overlay = $('<div class="body-highlight-overlay"></div>').html(html);
@@ -2089,6 +2089,158 @@
   function intruderResultsToHtml(results) {
     return fuzzResultsToHtml(results);
   }
+  let tabId = -1;
+  let isAttached = false;
+  let isEnabled = false;
+  const interceptedQueue = [];
+  let requestCounter = 0;
+  let onQueueChange = null;
+  let onRequestProcessed = null;
+  function setOnQueueChange(cb) {
+    onQueueChange = cb;
+  }
+  function setOnRequestProcessed(cb) {
+    onRequestProcessed = cb;
+  }
+  function getInterceptedQueue() {
+    return interceptedQueue;
+  }
+  function isInterceptEnabled() {
+    return isEnabled;
+  }
+  function isInterceptorAttached() {
+    return isAttached;
+  }
+  function attachInterceptor(tab, callback) {
+    tabId = tab;
+    chrome.debugger.attach({ tabId }, "1.3", () => {
+      if (chrome.runtime.lastError) {
+        console.warn("[SpyKit] debugger attach failed:", chrome.runtime.lastError.message);
+        if (callback) callback(false);
+        return;
+      }
+      isAttached = true;
+      chrome.debugger.onEvent.addListener(onDebuggerEvent);
+      chrome.debugger.onDetach.addListener(onDetach);
+      if (callback) callback(true);
+    });
+  }
+  function detachInterceptor() {
+    if (!isAttached) return;
+    if (isEnabled) {
+      chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
+        chrome.runtime.lastError;
+      });
+    }
+    chrome.debugger.detach({ tabId }, () => {
+      chrome.runtime.lastError;
+      isAttached = false;
+      isEnabled = false;
+      chrome.debugger.onEvent.removeListener(onDebuggerEvent);
+      chrome.debugger.onDetach.removeListener(onDetach);
+    });
+  }
+  function toggleIntercept(enable) {
+    if (!isAttached || enable === isEnabled) return;
+    isEnabled = enable;
+    if (enable) {
+      chrome.debugger.sendCommand({ tabId }, "Fetch.enable", {
+        patterns: [{ requestStage: "Request" }]
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.warn("[SpyKit] Fetch.enable failed:", chrome.runtime.lastError.message);
+          isEnabled = false;
+        }
+      });
+    } else {
+      chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
+        chrome.runtime.lastError;
+      });
+    }
+  }
+  function onDetach() {
+    isAttached = false;
+    isEnabled = false;
+    chrome.debugger.onEvent.removeListener(onDebuggerEvent);
+    chrome.debugger.onDetach.removeListener(onDetach);
+  }
+  function normalizeHeaders(h) {
+    if (!h) return [];
+    if (Array.isArray(h)) return h;
+    if (typeof h === "object") {
+      return Object.keys(h).map((name) => ({ name, value: String(h[name]) }));
+    }
+    return [];
+  }
+  function onDebuggerEvent(source, method2, params) {
+    if (method2 !== "Fetch.requestPaused") return;
+    const req = {
+      id: ++requestCounter,
+      requestId: params.requestId,
+      url: params.request.url,
+      method: params.request.method,
+      headers: normalizeHeaders(params.request.headers),
+      postData: params.request.postData,
+      timestamp: Date.now()
+    };
+    interceptedQueue.push(req);
+    if (onQueueChange) onQueueChange(interceptedQueue);
+  }
+  function forwardRequest(id2, modifications) {
+    const idx = interceptedQueue.findIndex((r) => r.id === id2);
+    if (idx < 0) return;
+    const req = interceptedQueue[idx];
+    const p = { requestId: req.requestId };
+    if (modifications) {
+      if (modifications.url !== void 0) p.url = modifications.url;
+      if (modifications.method !== void 0) p.method = modifications.method;
+      if (modifications.headers !== void 0) p.headers = modifications.headers;
+      if (modifications.postData !== void 0) p.postData = modifications.postData;
+    }
+    chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", p, () => {
+      chrome.runtime.lastError;
+    });
+    if (onRequestProcessed) onRequestProcessed(req, "forwarded");
+    interceptedQueue.splice(idx, 1);
+    if (onQueueChange) onQueueChange(interceptedQueue);
+  }
+  function forwardAllRequests() {
+    const copy = [...interceptedQueue];
+    for (const req of copy) forwardRequest(req.id);
+  }
+  function dropRequest(id2) {
+    const idx = interceptedQueue.findIndex((r) => r.id === id2);
+    if (idx < 0) return;
+    const req = interceptedQueue[idx];
+    chrome.debugger.sendCommand({ tabId }, "Fetch.failRequest", {
+      requestId: req.requestId,
+      errorReason: "BlockedByClient"
+    }, () => {
+      chrome.runtime.lastError;
+    });
+    if (onRequestProcessed) onRequestProcessed(req, "dropped");
+    interceptedQueue.splice(idx, 1);
+    if (onQueueChange) onQueueChange(interceptedQueue);
+  }
+  function dropAllRequests() {
+    const copy = [...interceptedQueue];
+    for (const req of copy) dropRequest(req.id);
+  }
+  function editAndForwardRequest(id2, url2, method2, headers2, body2) {
+    const parsedHeaders = [];
+    for (const line of headers2.split("\n")) {
+      const idx = line.indexOf(":");
+      if (idx > 0) {
+        parsedHeaders.push({ name: line.substring(0, idx).trim(), value: line.substring(idx + 1).trim() });
+      }
+    }
+    forwardRequest(id2, {
+      url: url2,
+      method: method2,
+      headers: parsedHeaders,
+      postData: body2 || void 0
+    });
+  }
   let filterHtmlAdded = false;
   function buildFilterRow() {
     if (filterHtmlAdded) return;
@@ -3132,23 +3284,173 @@
         autosize.update($("#form-url"));
       }
     });
+    setOnQueueChange(renderInterceptQueue);
+    renderInterceptQueue();
+    setOnRequestProcessed((req, action) => {
+      const entry = {
+        request: {
+          method: req.method,
+          url: req.url,
+          headers: Array.isArray(req.headers) ? req.headers : [],
+          postData: req.postData ? { text: req.postData } : void 0
+        },
+        response: {
+          status: action === "forwarded" ? -1 : 0,
+          statusText: action === "forwarded" ? "Forwarded" : "Dropped",
+          headers: [],
+          bodySize: 0
+        },
+        time: 0
+      };
+      onData(entry);
+    });
+    $(document).on("click", "#intercept-btn", function() {
+      const $btn = $(this);
+      if (!isInterceptorAttached()) {
+        const tabId2 = chrome.devtools.inspectedWindow.tabId;
+        $btn.text("⏳ Attaching...").prop("disabled", true);
+        attachInterceptor(tabId2, (success) => {
+          if (success) {
+            toggleIntercept(true);
+            $btn.toggleClass("active", true).text("⏸ Intercept").prop("disabled", false);
+            $("#intercept-panel").show();
+            updateFilterFixedTop();
+          } else {
+            $btn.text("⏸ Intercept").prop("disabled", false);
+            alert(
+              '[SpyKit] Could not attach debugger.\n\nTo use Intercept:\n1. Close DevTools\n2. Go to chrome://extensions\n3. Enable "Developer mode"\n4. Click "Service Worker" for SpyKit\n5. Check the console for errors\n6. Reload the extension\n7. Reopen DevTools and try again\n\nIf the issue persists, try restarting the browser.'
+            );
+          }
+        });
+        return;
+      }
+      const enable = !isInterceptEnabled();
+      toggleIntercept(enable);
+      $btn.toggleClass("active", enable);
+      if (enable && getInterceptedQueue().length === 0) {
+        $("#intercept-panel").show();
+      }
+      if (!enable && getInterceptedQueue().length === 0) {
+        $("#intercept-panel").hide();
+      }
+      updateFilterFixedTop();
+    });
+    $(document).on("click", "#intercept-forward-all", forwardAllRequests);
+    $(document).on("click", "#intercept-drop-all", dropAllRequests);
+    $(document).on("click", ".intercept-forward", function(e) {
+      e.stopPropagation();
+      const id2 = parseInt($(this).attr("data-id"));
+      forwardRequest(id2);
+    });
+    $(document).on("click", ".intercept-drop", function(e) {
+      e.stopPropagation();
+      const id2 = parseInt($(this).attr("data-id"));
+      dropRequest(id2);
+    });
+    $(document).on("click", ".intercept-item", function() {
+      const id2 = parseInt($(this).attr("data-id"));
+      if (isNaN(id2)) return;
+      const queue = getInterceptedQueue();
+      const req = queue.find((r) => r.id === id2);
+      if (!req) return;
+      $("#intercept-edit-id").val(String(id2));
+      $("#intercept-edit-url").val(req.url);
+      $("#intercept-edit-method").val(req.method);
+      const headers2 = req.headers || [];
+      const hdrStr = Array.isArray(headers2) ? headers2.map((h) => h.name + ": " + h.value).join("\n") : "";
+      $("#intercept-edit-headers").val(hdrStr);
+      $("#intercept-edit-body").val(req.postData || "");
+      $("#intercept-edit-overlay").show();
+    });
+    $(document).on("click", "#intercept-edit-close, #intercept-edit-cancel", function() {
+      $("#intercept-edit-overlay").hide();
+    });
+    $(document).on("click", "#intercept-edit-forward", function() {
+      const id2 = parseInt($("#intercept-edit-id").val());
+      const url2 = $("#intercept-edit-url").val();
+      const method2 = $("#intercept-edit-method").val();
+      const headers2 = $("#intercept-edit-headers").val();
+      const body2 = $("#intercept-edit-body").val();
+      editAndForwardRequest(id2, url2, method2, headers2, body2);
+      $("#intercept-edit-overlay").hide();
+    });
+    $(document).on("click", "#intercept-edit-drop", function() {
+      const id2 = parseInt($("#intercept-edit-id").val());
+      dropRequest(id2);
+      $("#intercept-edit-overlay").hide();
+    });
+  }
+  function updateFilterFixedTop() {
+    const panelHeight = $("#intercept-panel").is(":visible") ? $("#intercept-panel").outerHeight() || 0 : 0;
+    $(".filter.fixed").css("top", 32 + panelHeight);
+  }
+  function renderInterceptQueue() {
+    const queue = getInterceptedQueue();
+    const $container = $("#intercept-queue");
+    const $panel = $("#intercept-panel");
+    if (queue.length === 0) {
+      if (!isInterceptEnabled()) {
+        $panel.hide();
+      }
+      $container.empty();
+      $("#intercept-count").text("0");
+      updateFilterFixedTop();
+      return;
+    }
+    $panel.show();
+    $("#intercept-count").text(queue.length);
+    const now = Date.now();
+    let html = "";
+    for (const req of queue) {
+      const ago = Math.round((now - req.timestamp) / 1e3);
+      const timeStr = ago < 60 ? ago + "s" : Math.round(ago / 60) + "m";
+      html += '<div class="intercept-item" data-id="' + req.id + '">';
+      html += '<span class="method ' + req.method + '">' + req.method + "</span>";
+      html += '<span class="url" title="' + escapeHtml(req.url) + '">' + escapeHtml(truncateUrl(req.url)) + "</span>";
+      html += '<span class="time">' + timeStr + "</span>";
+      html += '<span class="actions">';
+      html += '<button class="btn btn-xs btn-success intercept-forward" data-id="' + req.id + '">Fwd</button>';
+      html += '<button class="btn btn-xs btn-danger intercept-drop" data-id="' + req.id + '">Drop</button>';
+      html += "</span>";
+      html += "</div>";
+    }
+    $container.html(html);
+    updateFilterFixedTop();
+  }
+  $(document).on("keydown", "#intercept-edit-overlay", function(e) {
+    if (e.key === "Escape") {
+      $("#intercept-edit-overlay").hide();
+    }
+  });
+  function escapeHtml(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function truncateUrl(url2) {
+    try {
+      const u = new URL(url2);
+      const path = u.pathname.length + (u.search ? u.search.length : 0);
+      if (path > 80) return u.origin + u.pathname.substring(0, 40) + "..." + u.pathname.slice(-20) + u.search;
+      return url2;
+    } catch {
+      return url2.length > 100 ? url2.substring(0, 97) + "..." : url2;
+    }
   }
   function simpleDiff(a, b) {
-    if (a === b) return '<span class="diff-context">' + escapeHtml(a) + "</span>";
+    if (a === b) return '<span class="diff-context">' + escapeHtml$1(a) + "</span>";
     const linesA = (a || "").split("\n");
     const linesB = (b || "").split("\n");
     let html = "";
     const maxLen = Math.max(linesA.length, linesB.length);
     for (let i = 0; i < maxLen; i++) {
       if (i >= linesA.length) {
-        html += '<div class="diff-added">+ ' + escapeHtml(linesB[i]) + "</div>";
+        html += '<div class="diff-added">+ ' + escapeHtml$1(linesB[i]) + "</div>";
       } else if (i >= linesB.length) {
-        html += '<div class="diff-removed">- ' + escapeHtml(linesA[i]) + "</div>";
+        html += '<div class="diff-removed">- ' + escapeHtml$1(linesA[i]) + "</div>";
       } else if (linesA[i] !== linesB[i]) {
-        html += '<div class="diff-removed">- ' + escapeHtml(linesA[i]) + "</div>";
-        html += '<div class="diff-added">+ ' + escapeHtml(linesB[i]) + "</div>";
+        html += '<div class="diff-removed">- ' + escapeHtml$1(linesA[i]) + "</div>";
+        html += '<div class="diff-added">+ ' + escapeHtml$1(linesB[i]) + "</div>";
       } else {
-        html += '<div class="diff-context">  ' + escapeHtml(linesA[i]) + "</div>";
+        html += '<div class="diff-context">  ' + escapeHtml$1(linesA[i]) + "</div>";
       }
     }
     return html;
@@ -3222,7 +3524,7 @@
   function renderMockList() {
     let html = "";
     for (let i = 0; i < mocks.length; i++) {
-      html += '<div class="mock-item">[' + mocks[i].status + "] " + escapeHtml(mocks[i].url) + ' <button class="mock-del" data-idx="' + i + '" style="float:right">&times;</button></div>';
+      html += '<div class="mock-item">[' + mocks[i].status + "] " + escapeHtml$1(mocks[i].url) + ' <button class="mock-del" data-idx="' + i + '" style="float:right">&times;</button></div>';
     }
     $("#mock-list").html(html || '<div style="color:#888;padding:8px">No mocks</div>');
   }
@@ -3259,7 +3561,7 @@
     let html = "";
     for (let i = workspaces.length - 1; i >= 0; i--) {
       const count = workspaces[i].requests ? Object.keys(workspaces[i].requests).length : 0;
-      html += '<div class="workspace-item" data-idx="' + i + '"><b>' + escapeHtml(workspaces[i].name) + "</b> (" + count + " requests)</div>";
+      html += '<div class="workspace-item" data-idx="' + i + '"><b>' + escapeHtml$1(workspaces[i].name) + "</b> (" + count + " requests)</div>";
     }
     $("#workspace-list").html(html || '<div style="color:#888;padding:8px">No workspaces</div>');
   }
@@ -3349,7 +3651,7 @@
     const snippets = getSnippets();
     let html = "";
     for (let i = snippets.length - 1; i >= 0; i--) {
-      html += '<div class="snippet-item" data-idx="' + i + '"><b>' + snippets[i].method + "</b> " + escapeHtml(snippets[i].name) + "</div>";
+      html += '<div class="snippet-item" data-idx="' + i + '"><b>' + snippets[i].method + "</b> " + escapeHtml$1(snippets[i].name) + "</div>";
     }
     $("#snippet-list").html(html || '<div style="color:#888;padding:8px">No snippets</div>');
   }
@@ -3768,6 +4070,9 @@
     initSnippetsUI();
     initWSPanel();
     initSessionCompare();
+    window.addEventListener("beforeunload", () => {
+      detachInterceptor();
+    });
     window.spykitLoaded = true;
   });
 })();

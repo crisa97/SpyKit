@@ -21,6 +21,12 @@ import { renderFuzzerDialog, getFuzzPayloads, fuzzResultsToHtml, fuzzResultsToCs
 import { renderRepeaterDialog, repeaterResultsToHtml, repeaterResultsToCsv, getRepeaterResults, setRepeaterResults, clearRepeaterResults } from '../rest/repeater';
 import { renderDecoderDialog, detectAndDecode, decodersToHtml } from '../ui/decoders';
 import { renderIntruderDialog, getIntruderPayloadTypes, getIntruderPayloads, getIntruderResults, setIntruderResults, clearIntruderResults, intruderResultsToHtml, saveCustomPayloads, loadCustomPayloads, deleteCustomPayloads, replaceJsonKey } from '../rest/intruder';
+import {
+  isInterceptEnabled, isInterceptorAttached, toggleIntercept, getInterceptedQueue,
+  forwardRequest, forwardAllRequests, dropRequest, dropAllRequests,
+  setOnQueueChange, setOnRequestProcessed, editAndForwardRequest, attachInterceptor,
+} from '../interceptor/intercept';
+import type { InterceptedRequest, CapturedEntry } from '../types/index';
 
 declare const autosize: any;
 
@@ -1140,4 +1146,181 @@ export function initPanel(): void {
       autosize.update($('#form-url'));
     }
   });
+
+  // ── Interceptor ──
+  setOnQueueChange(renderInterceptQueue);
+  renderInterceptQueue();
+  setOnRequestProcessed((req, action) => {
+    const entry: CapturedEntry = {
+      request: {
+        method: req.method,
+        url: req.url,
+        headers: Array.isArray(req.headers) ? req.headers : [],
+        postData: req.postData ? { text: req.postData } : undefined,
+      },
+      response: {
+        status: action === 'forwarded' ? -1 : 0,
+        statusText: action === 'forwarded' ? 'Forwarded' : 'Dropped',
+        headers: [],
+        bodySize: 0,
+      },
+      time: 0,
+    };
+    onData(entry);
+  });
+
+  $(document).on('click', '#intercept-btn', function () {
+    const $btn = $(this);
+    if (!isInterceptorAttached()) {
+      const tabId = chrome.devtools.inspectedWindow.tabId;
+      $btn.text('⏳ Attaching...').prop('disabled', true);
+      attachInterceptor(tabId, (success) => {
+        if (success) {
+          toggleIntercept(true);
+          $btn.toggleClass('active', true).text('⏸ Intercept').prop('disabled', false);
+          $('#intercept-panel').show();
+          updateFilterFixedTop();
+        } else {
+          $btn.text('⏸ Intercept').prop('disabled', false);
+          alert(
+            '[SpyKit] Could not attach debugger.\n\n' +
+            'To use Intercept:\n' +
+            '1. Close DevTools\n' +
+            '2. Go to chrome://extensions\n' +
+            '3. Enable "Developer mode"\n' +
+            '4. Click "Service Worker" for SpyKit\n' +
+            '5. Check the console for errors\n' +
+            '6. Reload the extension\n' +
+            '7. Reopen DevTools and try again\n\n' +
+            'If the issue persists, try restarting the browser.'
+          );
+        }
+      });
+      return;
+    }
+    const enable = !isInterceptEnabled();
+    toggleIntercept(enable);
+    $btn.toggleClass('active', enable);
+    if (enable && getInterceptedQueue().length === 0) {
+      $('#intercept-panel').show();
+    }
+    if (!enable && getInterceptedQueue().length === 0) {
+      $('#intercept-panel').hide();
+    }
+    updateFilterFixedTop();
+  });
+
+  $(document).on('click', '#intercept-forward-all', forwardAllRequests);
+  $(document).on('click', '#intercept-drop-all', dropAllRequests);
+
+  $(document).on('click', '.intercept-forward', function (e) {
+    e.stopPropagation();
+    const id = parseInt($(this).attr('data-id') as string);
+    forwardRequest(id);
+  });
+
+  $(document).on('click', '.intercept-drop', function (e) {
+    e.stopPropagation();
+    const id = parseInt($(this).attr('data-id') as string);
+    dropRequest(id);
+  });
+
+  $(document).on('click', '.intercept-item', function () {
+    const id = parseInt($(this).attr('data-id') as string);
+    if (isNaN(id)) return;
+    const queue = getInterceptedQueue();
+    const req = queue.find(r => r.id === id);
+    if (!req) return;
+    $('#intercept-edit-id').val(String(id));
+    $('#intercept-edit-url').val(req.url);
+    $('#intercept-edit-method').val(req.method);
+    const headers = req.headers || [];
+    const hdrStr = Array.isArray(headers) ? headers.map(h => h.name + ': ' + h.value).join('\n') : '';
+    $('#intercept-edit-headers').val(hdrStr);
+    $('#intercept-edit-body').val(req.postData || '');
+    $('#intercept-edit-overlay').show();
+  });
+
+  $(document).on('click', '#intercept-edit-close, #intercept-edit-cancel', function () {
+    $('#intercept-edit-overlay').hide();
+  });
+
+  $(document).on('click', '#intercept-edit-forward', function () {
+    const id = parseInt($('#intercept-edit-id').val() as string);
+    const url = $('#intercept-edit-url').val() as string;
+    const method = $('#intercept-edit-method').val() as string;
+    const headers = $('#intercept-edit-headers').val() as string;
+    const body = $('#intercept-edit-body').val() as string;
+    editAndForwardRequest(id, url, method, headers, body);
+    $('#intercept-edit-overlay').hide();
+  });
+
+  $(document).on('click', '#intercept-edit-drop', function () {
+    const id = parseInt($('#intercept-edit-id').val() as string);
+    dropRequest(id);
+    $('#intercept-edit-overlay').hide();
+  });
+}
+
+function updateFilterFixedTop(): void {
+  const panelHeight = $('#intercept-panel').is(':visible') ? $('#intercept-panel').outerHeight() || 0 : 0;
+  $('.filter.fixed').css('top', 32 + panelHeight);
+}
+
+function renderInterceptQueue(): void {
+  const queue = getInterceptedQueue();
+  const $container = $('#intercept-queue');
+  const $panel = $('#intercept-panel');
+
+  if (queue.length === 0) {
+    if (!isInterceptEnabled()) {
+      $panel.hide();
+    }
+    $container.empty();
+    $('#intercept-count').text('0');
+    updateFilterFixedTop();
+    return;
+  }
+
+  $panel.show();
+  $('#intercept-count').text(queue.length);
+
+  const now = Date.now();
+  let html = '';
+  for (const req of queue) {
+    const ago = Math.round((now - req.timestamp) / 1000);
+    const timeStr = ago < 60 ? ago + 's' : Math.round(ago / 60) + 'm';
+    html += '<div class="intercept-item" data-id="' + req.id + '">';
+    html += '<span class="method ' + req.method + '">' + req.method + '</span>';
+    html += '<span class="url" title="' + escapeHtml(req.url) + '">' + escapeHtml(truncateUrl(req.url)) + '</span>';
+    html += '<span class="time">' + timeStr + '</span>';
+    html += '<span class="actions">';
+    html += '<button class="btn btn-xs btn-success intercept-forward" data-id="' + req.id + '">Fwd</button>';
+    html += '<button class="btn btn-xs btn-danger intercept-drop" data-id="' + req.id + '">Drop</button>';
+    html += '</span>';
+    html += '</div>';
+  }
+  $container.html(html);
+  updateFilterFixedTop();
+}
+
+$(document).on('keydown', '#intercept-edit-overlay', function (e) {
+  if (e.key === 'Escape') {
+    $('#intercept-edit-overlay').hide();
+  }
+});
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function truncateUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.length + (u.search ? u.search.length : 0);
+    if (path > 80) return u.origin + u.pathname.substring(0, 40) + '...' + u.pathname.slice(-20) + u.search;
+    return url;
+  } catch {
+    return url.length > 100 ? url.substring(0, 97) + '...' : url;
+  }
 }
