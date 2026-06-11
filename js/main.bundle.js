@@ -107,7 +107,7 @@
   function setSplitRatio(r) {
     splitRatio = r;
   }
-  function escapeHtml$1(str) {
+  function escapeHtml$2(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
   function formatSize(bytes) {
@@ -762,7 +762,7 @@
     const env = values.envs[values.envName] || {};
     let html = "";
     for (const key in env) {
-      html += '<tr><td><input class="env-key" value="' + escapeHtml$1(key) + '"></td><td><input class="env-val" value="' + escapeHtml$1(env[key]) + '"></td><td><button class="env-del">&times;</button></td></tr>';
+      html += '<tr><td><input class="env-key" value="' + escapeHtml$2(key) + '"></td><td><input class="env-val" value="' + escapeHtml$2(env[key]) + '"></td><td><button class="env-del">&times;</button></td></tr>';
     }
     $("#env-rows").html(html);
   }
@@ -826,7 +826,7 @@
     const hist = values.restHistory || [];
     let html = "";
     for (let i = 0; i < hist.length; i++) {
-      html += '<div class="history-item" data-idx="' + i + '"><b>' + hist[i].method + "</b> " + escapeHtml$1(hist[i].url.substring(0, 100)) + ' <span style="color:#888">' + new Date(hist[i].ts).toLocaleTimeString() + "</span></div>";
+      html += '<div class="history-item" data-idx="' + i + '"><b>' + hist[i].method + "</b> " + escapeHtml$2(hist[i].url.substring(0, 100)) + ' <span style="color:#888">' + new Date(hist[i].ts).toLocaleTimeString() + "</span></div>";
     }
     $("#history-list").html(html || '<div style="color:#888;padding:8px">No history</div>');
   }
@@ -992,12 +992,12 @@
     let lastIdx = 0;
     let idx = 0;
     while ((idx = lowerText.indexOf(lowerTerm, idx)) >= 0) {
-      html += escapeHtml$1(text.substring(lastIdx, idx));
-      html += '<mark class="body-highlight">' + escapeHtml$1(text.substring(idx, idx + term.length)) + "</mark>";
+      html += escapeHtml$2(text.substring(lastIdx, idx));
+      html += '<mark class="body-highlight">' + escapeHtml$2(text.substring(idx, idx + term.length)) + "</mark>";
       idx += term.length;
       lastIdx = idx;
     }
-    html += escapeHtml$1(text.substring(lastIdx));
+    html += escapeHtml$2(text.substring(lastIdx));
     const $parent = $ta.parent();
     $parent.css("position", "relative");
     const overlay = $('<div class="body-highlight-overlay"></div>').html(html);
@@ -1704,6 +1704,472 @@
     "....//....//....//etc/passwd",
     "..%252f..%252f..%252fetc/passwd"
   ];
+  const DIRSEARCH_PAYLOADS = [
+    "admin",
+    "login",
+    "signin",
+    "signup",
+    "register",
+    "user",
+    "users",
+    "wp-admin",
+    "wp-content",
+    "wp-includes",
+    "wp-login",
+    "wp-json",
+    "wordpress",
+    "joomla",
+    "drupal",
+    "magento",
+    "laravel",
+    "symfony",
+    "api",
+    "api/v1",
+    "api/v2",
+    "v1",
+    "v2",
+    "rest",
+    "graphql",
+    "assets",
+    "static",
+    "dist",
+    "build",
+    "public",
+    "uploads",
+    "files",
+    "css",
+    "js",
+    "javascript",
+    "scripts",
+    "images",
+    "img",
+    "icons",
+    "fonts",
+    "backup",
+    "backups",
+    "old",
+    "temp",
+    "tmp",
+    "test",
+    "tests",
+    "dev",
+    "config",
+    "configuration",
+    "settings",
+    "env",
+    ".env",
+    "env.php",
+    ".git",
+    ".git/config",
+    ".gitignore",
+    ".svn",
+    ".htaccess",
+    ".htpasswd",
+    "sitemap.xml",
+    "robots.txt",
+    "favicon.ico",
+    "crossdomain.xml",
+    "index.php",
+    "index.html",
+    "index",
+    "default",
+    "home",
+    "main",
+    "about",
+    "contact",
+    "help",
+    "support",
+    "faq",
+    "terms",
+    "privacy",
+    "search",
+    "query",
+    "results",
+    "category",
+    "categories",
+    "tag",
+    "tags",
+    "product",
+    "products",
+    "item",
+    "items",
+    "shop",
+    "store",
+    "cart",
+    "checkout",
+    "payment",
+    "orders",
+    "order",
+    "invoice",
+    "account",
+    "profile",
+    "dashboard",
+    "panel",
+    "control",
+    "manage",
+    "management",
+    "download",
+    "downloads",
+    "upload",
+    "import",
+    "export",
+    "report",
+    "reports",
+    "ajax",
+    "includes",
+    "inc",
+    "lib",
+    "libs",
+    "library",
+    "vendor",
+    "src",
+    "source",
+    "node_modules",
+    "bower_components",
+    "composer.json",
+    "package.json",
+    "Dockerfile",
+    "docker-compose.yml",
+    "Makefile",
+    "README",
+    "README.md",
+    "CHANGELOG",
+    "LICENSE",
+    "COPYING",
+    "error",
+    "errors",
+    "error_log",
+    "debug",
+    "log",
+    "logs",
+    "access.log",
+    "server-status",
+    "server-info",
+    "phpinfo",
+    "info",
+    "info.php",
+    "ws",
+    "wss",
+    "websocket",
+    "socket",
+    "sockjs",
+    "sockjs-node",
+    "proxy",
+    "proxy.pac",
+    "cgi-bin",
+    "cgi",
+    "cgi-bin/php",
+    "pma",
+    "phpmyadmin",
+    "adminer",
+    "mysql",
+    "sql",
+    "phpPgAdmin",
+    "swagger",
+    "swagger-ui",
+    "api-docs",
+    "docs",
+    "documentation",
+    "health",
+    "healthz",
+    "readyz",
+    "metrics",
+    "status",
+    "ping",
+    "pong"
+  ];
+  const SUBDOMAIN_PAYLOADS = [
+    "www",
+    "mail",
+    "webmail",
+    "admin",
+    "adm",
+    "cpanel",
+    "whm",
+    "cpcalendars",
+    "cpcontacts",
+    "webdisk",
+    "autodiscover",
+    "autoconfig",
+    "api",
+    "api-dev",
+    "api-staging",
+    "dev-api",
+    "dev",
+    "development",
+    "staging",
+    "stage",
+    "test",
+    "testing",
+    "qa",
+    "uat",
+    "app",
+    "app-dev",
+    "app-staging",
+    "app-test",
+    "portal",
+    "dashboard",
+    "blog",
+    "wiki",
+    "docs",
+    "documentation",
+    "help",
+    "support",
+    "status",
+    "cdn",
+    "static",
+    "assets",
+    "media",
+    "images",
+    "img",
+    "css",
+    "js",
+    "fonts",
+    "upload",
+    "uploads",
+    "files",
+    "download",
+    "downloads",
+    "shop",
+    "store",
+    "cart",
+    "checkout",
+    "payment",
+    "orders",
+    "order",
+    "billing",
+    "invoice",
+    "account",
+    "accounts",
+    "profile",
+    "profiles",
+    "login",
+    "signin",
+    "signup",
+    "register",
+    "auth",
+    "sso",
+    "oauth",
+    "oauth2",
+    "idp",
+    "identity",
+    "user",
+    "users",
+    "member",
+    "members",
+    "customer",
+    "customers",
+    "admin-console",
+    "console",
+    "manager",
+    "management",
+    "manage",
+    "monitor",
+    "monitoring",
+    "metrics",
+    "grafana",
+    "prometheus",
+    "kibana",
+    "jenkins",
+    "gitlab",
+    "git",
+    "github",
+    "bitbucket",
+    "jira",
+    "confluence",
+    "sonar",
+    "sonarqube",
+    "nexus",
+    "artifactory",
+    "docker",
+    "registry",
+    "maven",
+    "npm",
+    "pypi",
+    "composer",
+    "packagist",
+    "vpn",
+    "vpn-admin",
+    "remote",
+    "remote-desktop",
+    "rdp",
+    "ssh",
+    "proxy",
+    "proxy-admin",
+    "squid",
+    "nginx",
+    "apache",
+    "tomcat",
+    "mysql",
+    "mariadb",
+    "postgres",
+    "postgresql",
+    "redis",
+    "memcached",
+    "mongodb",
+    "couchdb",
+    "cassandra",
+    "elastic",
+    "elasticsearch",
+    "rabbitmq",
+    "kafka",
+    "zookeeper",
+    "ns1",
+    "ns2",
+    "ns3",
+    "dns",
+    "mail2",
+    "mail3",
+    "smtp",
+    "pop3",
+    "imap",
+    "smtp-relay",
+    "web",
+    "web1",
+    "web2",
+    "web3",
+    "app1",
+    "app2",
+    "node1",
+    "node2",
+    "server",
+    "server1",
+    "server2",
+    "db",
+    "db1",
+    "db2",
+    "database",
+    "backup",
+    "backup1",
+    "backup2",
+    "storage",
+    "nas",
+    "san",
+    "news",
+    "newsletter",
+    "forum",
+    "community",
+    "chat",
+    "irc",
+    "calendar",
+    "cal",
+    "meet",
+    "meeting",
+    "zoom",
+    "teams",
+    "slack",
+    "phone",
+    "voip",
+    "sip",
+    "pbx",
+    "asterisk",
+    "3cx",
+    "tracking",
+    "analytics",
+    "stats",
+    "statistics",
+    "piwik",
+    "matomo",
+    "recruitment",
+    "jobs",
+    "career",
+    "careers",
+    "hr",
+    "employee",
+    "intranet",
+    "internal",
+    "corp",
+    "corporate",
+    "office",
+    "office365",
+    "sharepoint",
+    "exchange",
+    "lync",
+    "skype",
+    "teams",
+    "lms",
+    "moodle",
+    "blackboard",
+    "canvas",
+    "sakai",
+    "wordpress",
+    "wp",
+    "wp-admin",
+    "wp-content",
+    "wp-json",
+    "drupal",
+    "joomla",
+    "magento",
+    "shopify",
+    "woocommerce",
+    "prestashop",
+    "opencart",
+    "oscommerce",
+    "zencart",
+    "hub",
+    "connect",
+    "partner",
+    "partners",
+    "vendor",
+    "vendors",
+    "reseller",
+    "affiliate",
+    "affiliates",
+    "referral",
+    "ticket",
+    "tickets",
+    "support-ticket",
+    "helpdesk",
+    "suggest",
+    "feedback",
+    "survey",
+    "poll",
+    "vote",
+    "webmail2",
+    "roundcube",
+    "squirrelmail",
+    "rainloop",
+    "phpmyadmin",
+    "pma",
+    "adminer",
+    "phpPgAdmin",
+    "phppgadmin",
+    "mailcow",
+    "iredmail",
+    "zimbra",
+    "zimbra-admin",
+    "host",
+    "hosting",
+    "hostmaster",
+    "postmaster",
+    "abuse",
+    "noc",
+    "network",
+    "syslog",
+    "log",
+    "logs",
+    "splunk",
+    "ns1",
+    "ns2",
+    "ns3",
+    "ns4",
+    "dns1",
+    "dns2",
+    "owa",
+    "ecp",
+    "autodiscover",
+    "crm",
+    "erp",
+    "sap",
+    "oracle",
+    "peoplesoft",
+    "jde",
+    "ldap",
+    "adfs",
+    "ad",
+    "dc",
+    "domaincontroller"
+  ];
   function getFuzzPayloads(type) {
     switch (type) {
       case "sqli":
@@ -1712,6 +2178,10 @@
         return XSS_FUZZ_PAYLOADS;
       case "path":
         return PATH_TRAVERSAL_PAYLOADS;
+      case "dirsearch":
+        return DIRSEARCH_PAYLOADS;
+      case "subdomain":
+        return SUBDOMAIN_PAYLOADS;
       default:
         return [];
     }
@@ -1756,6 +2226,7 @@
       <select id="fuzzer-position" class="form-control" style="font-size:12px;padding:2px 6px">
         <option value="url-param">URL Parameter</option>
         <option value="json-body-key">JSON Body Key</option>
+        <option value="url-path">URL Path (Directory)</option>
       </select>
     </div>
     <div style="flex:1">
@@ -1770,6 +2241,8 @@
         <option value="sqli">SQL Injection</option>
         <option value="xss">Cross-Site Scripting (XSS)</option>
         <option value="path">Path Traversal</option>
+        <option value="dirsearch">Directory Search</option>
+        <option value="subdomain">Subdomain Discovery</option>
       </select>
     </div>
     <div style="flex:1;align-self:flex-end">
@@ -1778,6 +2251,7 @@
   </div>
   <div style="margin-bottom:8px;display:flex;gap:4px">
     <button id="fuzzer-start" class="btn btn-sm btn-danger" style="flex:1">⚡ Start Fuzzing</button>
+    <button id="fuzzer-stop" class="btn btn-sm btn-default" style="display:none;flex:0.4">⏹ Stop</button>
   </div>
   <div id="fuzzer-progress" style="display:none;margin-bottom:6px">
     <div style="display:flex;justify-content:space-between;font-size:11px;color:#888">
@@ -1789,7 +2263,8 @@
     </div>
   </div>
   <div id="fuzzer-results" style="max-height:300px;overflow-y:auto;font-size:11px"></div>
-  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end">
+  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end;align-items:center">
+    <label style="color:#888;font-size:10px;margin-right:auto"><input type="checkbox" id="fuzzer-hide-noise" style="margin-right:3px">Hide 0/404</label>
     <button id="fuzzer-export-csv" class="btn btn-xs btn-default">Export CSV</button>
     <button id="fuzzer-clear" class="btn btn-xs btn-default">Clear</button>
   </div>
@@ -1803,20 +2278,43 @@
     }
     return csv;
   }
+  function escapeHtml$1(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
   function fuzzResultsToHtml(results) {
     if (!results.length) return '<div style="color:#888;padding:8px;text-align:center">No results yet</div>';
+    const hasNon404 = results.some((r) => r.status !== 404 && r.status !== 0);
     let html = '<table style="width:100%;border-collapse:collapse;font-size:10px">';
-    html += '<tr style="background:#2a2a2a"><th style="padding:4px;text-align:left">#</th><th style="padding:4px;text-align:left">Payload</th><th style="padding:4px;text-align:right">Status</th><th style="padding:4px;text-align:right">Size</th><th style="padding:4px;text-align:right">Time</th><th style="padding:4px;text-align:right">Diff</th></tr>';
+    html += '<tr style="background:#2a2a2a"><th style="padding:4px;text-align:left">#</th><th style="padding:4px;text-align:left">Payload</th><th style="padding:4px;text-align:right">Status</th><th style="padding:4px;text-align:right">Size</th><th style="padding:4px;text-align:right">Time</th>' + (hasNon404 ? '<th style="padding:4px;text-align:right">URL</th>' : "") + "</tr>";
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      const bg = r.status !== 200 ? "#2a1a1a" : r.diff > 100 ? "#1a2a1a" : "#1a1a1a";
-      html += '<tr class="fuzz-result-row" data-url="' + r.url.replace(/"/g, "&quot;") + '" data-method="' + r.method + '" data-payload="' + r.payload.replace(/"/g, "&quot;") + '" style="background:' + bg + ';cursor:pointer">';
+      const isInteresting = r.status > 0 && r.status !== 404 && r.status !== 410;
+      const bg = isInteresting ? "#1a2a1a" : r.status === 0 ? "#1a1a1a" : "#1a1a1a";
+      html += '<tr class="fuzz-result-row" data-url="' + escapeHtml$1(r.url) + '" data-method="' + escapeHtml$1(r.method) + '" data-payload="' + escapeHtml$1(r.payload) + '" style="background:' + bg + ';cursor:pointer">';
       html += '<td style="padding:2px 4px;color:#888">' + (i + 1) + "</td>";
-      html += '<td style="padding:2px 4px;color:#eee;font-family:monospace;word-break:break-all;max-width:200px">' + r.payload.substring(0, 40) + "</td>";
-      html += '<td style="padding:2px 4px;text-align:right;color:' + (r.status >= 400 ? "#ff4444" : "#44cc44") + '">' + r.status + "</td>";
+      html += '<td style="padding:2px 4px;color:#eee;font-family:monospace;word-break:break-all;max-width:200px">' + escapeHtml$1(r.payload.substring(0, 50)) + "</td>";
+      let statusText;
+      let statusColor;
+      if (r.status === 0) {
+        statusText = "ERR";
+        statusColor = "#666";
+      } else if (r.status >= 400) {
+        statusText = String(r.status);
+        statusColor = "#ff4444";
+      } else if (r.status >= 300) {
+        statusText = String(r.status);
+        statusColor = "#ffaa00";
+      } else {
+        statusText = String(r.status);
+        statusColor = "#44cc44";
+      }
+      html += '<td style="padding:2px 4px;text-align:right;font-weight:' + (isInteresting ? "bold" : "normal") + ";color:" + statusColor + '">' + statusText + "</td>";
       html += '<td style="padding:2px 4px;text-align:right;color:#888">' + r.bodySize + "</td>";
       html += '<td style="padding:2px 4px;text-align:right;color:#888">' + r.responseTime + "ms</td>";
-      html += '<td style="padding:2px 4px;text-align:right;color:' + (r.diff > 100 ? "#ffaa00" : "#888") + '">' + r.diff + "</td>";
+      if (hasNon404) {
+        const displayUrl = r.url.length > 60 ? r.url.substring(0, 57) + "..." : r.url;
+        html += '<td style="padding:2px 4px;text-align:right;color:#888;font-size:9px;max-width:180px;overflow:hidden">' + escapeHtml$1(displayUrl) + "</td>";
+      }
       html += "</tr>";
     }
     html += "</table>";
@@ -2056,6 +2554,7 @@
   </div>
   <div style="margin-bottom:8px;display:flex;gap:4px">
     <button id="intruder-start" class="btn btn-sm btn-danger" style="flex:1">⚡ Start Attack</button>
+    <button id="intruder-stop" class="btn btn-sm btn-default" style="display:none;flex:0.4">⏹ Stop</button>
     <label style="color:#aaa;font-size:11px;align-self:center">
       Concurrent: <input id="intruder-concurrent" type="number" value="5" min="1" max="20" style="width:50px;background:#1e1e1e;color:#eee;border:1px solid #555;padding:2px;font-size:11px">
     </label>
@@ -2070,7 +2569,8 @@
     </div>
   </div>
   <div id="intruder-results" style="max-height:300px;overflow-y:auto;font-size:11px"></div>
-  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end">
+  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end;align-items:center">
+    <label style="color:#888;font-size:10px;margin-right:auto"><input type="checkbox" id="intruder-hide-noise" style="margin-right:3px">Hide 0/404</label>
     <button id="intruder-export" class="btn btn-xs btn-default">Export CSV</button>
     <button id="intruder-clear" class="btn btn-xs btn-default">Clear</button>
   </div>
@@ -2875,6 +3375,12 @@
         $("#intruder-payload-type").val("__custom__").trigger("change");
       }
     });
+    let intruderCancel = false;
+    let fuzzerCancel = false;
+    $(document).on("click", "#intruder-stop", function() {
+      intruderCancel = true;
+      $("#intruder-stop").prop("disabled", true).text("⏹ Stopping...");
+    });
     $(document).on("click", "#intruder-start", async function() {
       const position = $("#intruder-position").val();
       const field = $("#intruder-field").val();
@@ -2899,6 +3405,8 @@
       const headers2 = $("#form-headers").val();
       const body2 = $("#form-body").val();
       $("#intruder-start").prop("disabled", true);
+      $("#intruder-stop").show().prop("disabled", false).text("⏹ Stop");
+      intruderCancel = false;
       $("#intruder-progress").show();
       clearIntruderResults();
       const results = [];
@@ -2965,16 +3473,23 @@
         $("#intruder-progress-text").text(completed + " / " + total);
         $("#intruder-progress-pct").text(pct + "%");
         $("#intruder-progress-bar").css("width", pct + "%");
-        $("#intruder-results").html(intruderResultsToHtml(results));
+        const hideNoise = $("#intruder-hide-noise").is(":checked");
+        const displayResults = hideNoise ? results.filter((r) => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+        $("#intruder-results").html(intruderResultsToHtml(displayResults));
       }
-      for (let i = 0; i < payloads.length; i += concurrent) {
+      for (let i = 0; i < payloads.length && !intruderCancel; i += concurrent) {
         const batch = payloads.slice(i, i + concurrent);
         await Promise.all(batch.map((p, j) => sendPayload(p)));
       }
       setIntruderResults(results);
       $("#intruder-start").prop("disabled", false).text("⚡ Start Attack");
-      $("#intruder-progress-text").text("Done: " + total + " / " + total);
-      $("#intruder-progress-bar").css("width", "100%");
+      $("#intruder-stop").hide();
+      if (intruderCancel) {
+        $("#intruder-progress-text").text("Stopped: " + completed + " / " + total);
+      } else {
+        $("#intruder-progress-text").text("Done: " + total + " / " + total);
+        $("#intruder-progress-bar").css("width", "100%");
+      }
     });
     $(document).on("click", "#intruder-export", function() {
       const results = getIntruderResults();
@@ -2997,6 +3512,13 @@
       clearIntruderResults();
       $("#intruder-results").empty();
       $("#intruder-progress").hide();
+    });
+    $(document).on("change", "#intruder-hide-noise", function() {
+      const results = getIntruderResults();
+      if (!results.length) return;
+      const hideNoise = $("#intruder-hide-noise").is(":checked");
+      const displayResults = hideNoise ? results.filter((r) => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+      $("#intruder-results").html(intruderResultsToHtml(displayResults));
     });
     $(document).on("click", "#fuzzer-btn", function() {
       const existingDialog = $("#fuzzer-dialog");
@@ -3035,30 +3557,57 @@
         $("#fuzzer-dialog").remove();
       });
     });
+    $(document).on("click", "#fuzzer-stop", function() {
+      fuzzerCancel = true;
+      $("#fuzzer-stop").prop("disabled", true).text("⏹ Stopping...");
+    });
     $(document).on("click", "#fuzzer-start", async function() {
       const param = $("#fuzzer-param").val();
       const type = $("#fuzzer-type").val();
       const position = $("#fuzzer-position").val();
       const append = $("#fuzzer-append").is(":checked");
-      if (!param) {
+      if (!param && position !== "url-path" && type !== "subdomain") {
         alert("Enter a field name");
         return;
       }
       const payloads = getFuzzPayloads(type);
+      if (!payloads.length) {
+        alert("No payloads available for selected type");
+        return;
+      }
       const method2 = $("#form-method").val();
       let baseUrl = $("#form-url").val();
       const headers2 = $("#form-headers").val();
       const body2 = $("#form-body").val();
+      if (position === "url-path" && !baseUrl.endsWith("/")) {
+        baseUrl += "/";
+      }
       $("#fuzzer-start").prop("disabled", true);
+      $("#fuzzer-stop").show().prop("disabled", false).text("⏹ Stop");
+      fuzzerCancel = false;
       $("#fuzzer-progress").show();
       clearFuzzResults();
       const results = [];
       const total = payloads.length;
-      for (let i = 0; i < payloads.length; i++) {
+      for (let i = 0; i < payloads.length && !fuzzerCancel; i++) {
         const payload = payloads[i];
         let targetUrl = baseUrl;
         let targetBody = body2;
-        if (position === "url-param") {
+        if (type === "subdomain") {
+          try {
+            const urlObj = new URL(baseUrl);
+            const parts = urlObj.hostname.split(".");
+            if (parts.length >= 2) {
+              parts[0] = payload;
+            } else {
+              parts.unshift(payload);
+            }
+            urlObj.hostname = parts.join(".");
+            targetUrl = urlObj.toString();
+          } catch {
+            targetUrl = baseUrl;
+          }
+        } else if (position === "url-param") {
           const paramEncoded = encodeURIComponent(param);
           if (targetUrl.indexOf("?" + paramEncoded + "=") >= 0 || targetUrl.indexOf("&" + paramEncoded + "=") >= 0) {
             targetUrl = targetUrl.replace(new RegExp("([?&])" + paramEncoded + "=[^&]*"), "$1" + paramEncoded + "=" + encodeURIComponent(payload));
@@ -3069,6 +3618,8 @@
           }
         } else if (position === "json-body-key") {
           targetBody = replaceJsonKey$1(body2, param, payload, append);
+        } else if (position === "url-path") {
+          targetUrl = baseUrl + payload;
         }
         const startTime = performance.now();
         try {
@@ -3101,12 +3652,24 @@
         $("#fuzzer-progress-text").text(i + 1 + " / " + total);
         $("#fuzzer-progress-pct").text(pct + "%");
         $("#fuzzer-progress-bar").css("width", pct + "%");
-        $("#fuzzer-results").html(fuzzResultsToHtml(results));
+        if (i % 5 === 0 || i === total - 1) {
+          const hideNoise2 = $("#fuzzer-hide-noise").is(":checked");
+          const displayResults2 = hideNoise2 ? results.filter((r) => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+          $("#fuzzer-results").html(fuzzResultsToHtml(displayResults2));
+        }
       }
       setFuzzResults(results);
       $("#fuzzer-start").prop("disabled", false).text("⚡ Start Fuzzing");
-      $("#fuzzer-progress-text").text("Done: " + total + " / " + total);
-      $("#fuzzer-progress-bar").css("width", "100%");
+      $("#fuzzer-stop").hide();
+      if (fuzzerCancel) {
+        $("#fuzzer-progress-text").text("Stopped: " + results.length + " / " + total);
+      } else {
+        $("#fuzzer-progress-text").text("Done: " + total + " / " + total);
+        $("#fuzzer-progress-bar").css("width", "100%");
+      }
+      const hideNoise = $("#fuzzer-hide-noise").is(":checked");
+      const displayResults = hideNoise ? results.filter((r) => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+      $("#fuzzer-results").html(fuzzResultsToHtml(displayResults));
     });
     $(document).on("click", "#fuzzer-export-csv", function() {
       const results = getFuzzResults();
@@ -3125,6 +3688,13 @@
       clearFuzzResults();
       $("#fuzzer-results").empty();
       $("#fuzzer-progress").hide();
+    });
+    $(document).on("change", "#fuzzer-hide-noise", function() {
+      const results = getFuzzResults();
+      if (!results.length) return;
+      const hideNoise = $("#fuzzer-hide-noise").is(":checked");
+      const displayResults = hideNoise ? results.filter((r) => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+      $("#fuzzer-results").html(fuzzResultsToHtml(displayResults));
     });
     $(document).on("click", "#repeater-btn", function() {
       const existingDialog = $("#repeater-dialog");
@@ -3436,21 +4006,21 @@
     }
   }
   function simpleDiff(a, b) {
-    if (a === b) return '<span class="diff-context">' + escapeHtml$1(a) + "</span>";
+    if (a === b) return '<span class="diff-context">' + escapeHtml$2(a) + "</span>";
     const linesA = (a || "").split("\n");
     const linesB = (b || "").split("\n");
     let html = "";
     const maxLen = Math.max(linesA.length, linesB.length);
     for (let i = 0; i < maxLen; i++) {
       if (i >= linesA.length) {
-        html += '<div class="diff-added">+ ' + escapeHtml$1(linesB[i]) + "</div>";
+        html += '<div class="diff-added">+ ' + escapeHtml$2(linesB[i]) + "</div>";
       } else if (i >= linesB.length) {
-        html += '<div class="diff-removed">- ' + escapeHtml$1(linesA[i]) + "</div>";
+        html += '<div class="diff-removed">- ' + escapeHtml$2(linesA[i]) + "</div>";
       } else if (linesA[i] !== linesB[i]) {
-        html += '<div class="diff-removed">- ' + escapeHtml$1(linesA[i]) + "</div>";
-        html += '<div class="diff-added">+ ' + escapeHtml$1(linesB[i]) + "</div>";
+        html += '<div class="diff-removed">- ' + escapeHtml$2(linesA[i]) + "</div>";
+        html += '<div class="diff-added">+ ' + escapeHtml$2(linesB[i]) + "</div>";
       } else {
-        html += '<div class="diff-context">  ' + escapeHtml$1(linesA[i]) + "</div>";
+        html += '<div class="diff-context">  ' + escapeHtml$2(linesA[i]) + "</div>";
       }
     }
     return html;
@@ -3524,7 +4094,7 @@
   function renderMockList() {
     let html = "";
     for (let i = 0; i < mocks.length; i++) {
-      html += '<div class="mock-item">[' + mocks[i].status + "] " + escapeHtml$1(mocks[i].url) + ' <button class="mock-del" data-idx="' + i + '" style="float:right">&times;</button></div>';
+      html += '<div class="mock-item">[' + mocks[i].status + "] " + escapeHtml$2(mocks[i].url) + ' <button class="mock-del" data-idx="' + i + '" style="float:right">&times;</button></div>';
     }
     $("#mock-list").html(html || '<div style="color:#888;padding:8px">No mocks</div>');
   }
@@ -3561,7 +4131,7 @@
     let html = "";
     for (let i = workspaces.length - 1; i >= 0; i--) {
       const count = workspaces[i].requests ? Object.keys(workspaces[i].requests).length : 0;
-      html += '<div class="workspace-item" data-idx="' + i + '"><b>' + escapeHtml$1(workspaces[i].name) + "</b> (" + count + " requests)</div>";
+      html += '<div class="workspace-item" data-idx="' + i + '"><b>' + escapeHtml$2(workspaces[i].name) + "</b> (" + count + " requests)</div>";
     }
     $("#workspace-list").html(html || '<div style="color:#888;padding:8px">No workspaces</div>');
   }
@@ -3651,7 +4221,7 @@
     const snippets = getSnippets();
     let html = "";
     for (let i = snippets.length - 1; i >= 0; i--) {
-      html += '<div class="snippet-item" data-idx="' + i + '"><b>' + snippets[i].method + "</b> " + escapeHtml$1(snippets[i].name) + "</div>";
+      html += '<div class="snippet-item" data-idx="' + i + '"><b>' + snippets[i].method + "</b> " + escapeHtml$2(snippets[i].name) + "</div>";
     }
     $("#snippet-list").html(html || '<div style="color:#888;padding:8px">No snippets</div>');
   }

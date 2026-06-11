@@ -115,7 +115,8 @@ export function renderIntruderDialog(): string {
     </div>
   </div>
   <div style="margin-bottom:8px;display:flex;gap:4px">
-    <button id="intruder-start" class="btn btn-sm btn-danger" style="flex:1">\u26A1 Start Attack</button>
+    <button id="intruder-start" class="btn btn-sm btn-danger" style="flex:1">⚡ Start Attack</button>
+    <button id="intruder-stop" class="btn btn-sm btn-default" style="display:none;flex:0.4">⏹ Stop</button>
     <label style="color:#aaa;font-size:11px;align-self:center">
       Concurrent: <input id="intruder-concurrent" type="number" value="5" min="1" max="20" style="width:50px;background:#1e1e1e;color:#eee;border:1px solid #555;padding:2px;font-size:11px">
     </label>
@@ -130,7 +131,8 @@ export function renderIntruderDialog(): string {
     </div>
   </div>
   <div id="intruder-results" style="max-height:300px;overflow-y:auto;font-size:11px"></div>
-  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end">
+  <div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end;align-items:center">
+    <label style="color:#888;font-size:10px;margin-right:auto"><input type="checkbox" id="intruder-hide-noise" style="margin-right:3px">Hide 0/404</label>
     <button id="intruder-export" class="btn btn-xs btn-default">Export CSV</button>
     <button id="intruder-clear" class="btn btn-xs btn-default">Clear</button>
   </div>

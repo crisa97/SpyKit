@@ -752,6 +752,14 @@ export function initPanel(): void {
     }
   });
 
+  let intruderCancel = false;
+  let fuzzerCancel = false;
+
+  $(document).on('click', '#intruder-stop', function () {
+    intruderCancel = true;
+    $('#intruder-stop').prop('disabled', true).text('⏹ Stopping...');
+  });
+
   $(document).on('click', '#intruder-start', async function () {
     const position = $('#intruder-position').val() as string;
     const field = $('#intruder-field').val() as string;
@@ -773,6 +781,8 @@ export function initPanel(): void {
     const body = $('#form-body').val() as string;
 
     $('#intruder-start').prop('disabled', true);
+    $('#intruder-stop').show().prop('disabled', false).text('⏹ Stop');
+    intruderCancel = false;
     $('#intruder-progress').show();
     clearIntruderResults();
     const results: FuzzResult[] = [];
@@ -835,19 +845,26 @@ export function initPanel(): void {
       $('#intruder-progress-text').text(completed + ' / ' + total);
       $('#intruder-progress-pct').text(pct + '%');
       $('#intruder-progress-bar').css('width', pct + '%');
-      $('#intruder-results').html(intruderResultsToHtml(results));
+      const hideNoise = $('#intruder-hide-noise').is(':checked');
+      const displayResults = hideNoise ? results.filter(r => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+      $('#intruder-results').html(intruderResultsToHtml(displayResults));
     }
 
     // Batch concurrent
-    for (let i = 0; i < payloads.length; i += concurrent) {
+    for (let i = 0; i < payloads.length && !intruderCancel; i += concurrent) {
       const batch = payloads.slice(i, i + concurrent);
       await Promise.all(batch.map((p, j) => sendPayload(p, i + j)));
     }
 
     setIntruderResults(results);
     $('#intruder-start').prop('disabled', false).text('\u26A1 Start Attack');
-    $('#intruder-progress-text').text('Done: ' + total + ' / ' + total);
-    $('#intruder-progress-bar').css('width', '100%');
+    $('#intruder-stop').hide();
+    if (intruderCancel) {
+      $('#intruder-progress-text').text('Stopped: ' + completed + ' / ' + total);
+    } else {
+      $('#intruder-progress-text').text('Done: ' + total + ' / ' + total);
+      $('#intruder-progress-bar').css('width', '100%');
+    }
   });
 
   $(document).on('click', '#intruder-export', function () {
@@ -869,6 +886,14 @@ export function initPanel(): void {
     clearIntruderResults();
     $('#intruder-results').empty();
     $('#intruder-progress').hide();
+  });
+
+  $(document).on('change', '#intruder-hide-noise', function () {
+    const results = getIntruderResults();
+    if (!results.length) return;
+    const hideNoise = $('#intruder-hide-noise').is(':checked');
+    const displayResults = hideNoise ? results.filter(r => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+    $('#intruder-results').html(intruderResultsToHtml(displayResults));
   });
 
   // ── Fuzzer ──
@@ -904,31 +929,58 @@ export function initPanel(): void {
     $('#fuzzer-close').on('click', function () { $('#fuzzer-dialog').remove(); });
   });
 
+  $(document).on('click', '#fuzzer-stop', function () {
+    fuzzerCancel = true;
+    $('#fuzzer-stop').prop('disabled', true).text('⏹ Stopping...');
+  });
+
   $(document).on('click', '#fuzzer-start', async function () {
     const param = $('#fuzzer-param').val() as string;
     const type = $('#fuzzer-type').val() as string;
     const position = $('#fuzzer-position').val() as string;
     const append = ($('#fuzzer-append').is(':checked'));
-    if (!param) { alert('Enter a field name'); return; }
+    if (!param && position !== 'url-path' && type !== 'subdomain') { alert('Enter a field name'); return; }
 
     const payloads = getFuzzPayloads(type);
+    if (!payloads.length) { alert('No payloads available for selected type'); return; }
     const method = $('#form-method').val() as string;
     let baseUrl = $('#form-url').val() as string;
     const headers = $('#form-headers').val() as string;
     const body = $('#form-body').val() as string;
 
+    // Ensure baseUrl ends with / for url-path position
+    if (position === 'url-path' && !baseUrl.endsWith('/')) {
+      baseUrl += '/';
+    }
+
     $('#fuzzer-start').prop('disabled', true);
+    $('#fuzzer-stop').show().prop('disabled', false).text('⏹ Stop');
+    fuzzerCancel = false;
     $('#fuzzer-progress').show();
     clearFuzzResults();
     const results: FuzzResult[] = [];
     const total = payloads.length;
 
-    for (let i = 0; i < payloads.length; i++) {
+    for (let i = 0; i < payloads.length && !fuzzerCancel; i++) {
       const payload = payloads[i];
       let targetUrl = baseUrl;
       let targetBody = body;
 
-      if (position === 'url-param') {
+      if (type === 'subdomain') {
+        try {
+          const urlObj = new URL(baseUrl);
+          const parts = urlObj.hostname.split('.');
+          if (parts.length >= 2) {
+            parts[0] = payload;
+          } else {
+            parts.unshift(payload);
+          }
+          urlObj.hostname = parts.join('.');
+          targetUrl = urlObj.toString();
+        } catch {
+          targetUrl = baseUrl;
+        }
+      } else if (position === 'url-param') {
         const paramEncoded = encodeURIComponent(param);
         if (targetUrl.indexOf('?' + paramEncoded + '=') >= 0 || targetUrl.indexOf('&' + paramEncoded + '=') >= 0) {
           targetUrl = targetUrl.replace(new RegExp('([?&])' + paramEncoded + '=[^&]*'), '$1' + paramEncoded + '=' + encodeURIComponent(payload));
@@ -939,6 +991,8 @@ export function initPanel(): void {
         }
       } else if (position === 'json-body-key') {
         targetBody = fuzzReplaceJsonKey(body, param, payload, append);
+      } else if (position === 'url-path') {
+        targetUrl = baseUrl + payload;
       }
 
       const startTime = performance.now();
@@ -965,13 +1019,25 @@ export function initPanel(): void {
       $('#fuzzer-progress-text').text((i + 1) + ' / ' + total);
       $('#fuzzer-progress-pct').text(pct + '%');
       $('#fuzzer-progress-bar').css('width', pct + '%');
-      $('#fuzzer-results').html(fuzzResultsToHtml(results));
+      if (i % 5 === 0 || i === total - 1) {
+        const hideNoise = $('#fuzzer-hide-noise').is(':checked');
+        const displayResults = hideNoise ? results.filter(r => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+        $('#fuzzer-results').html(fuzzResultsToHtml(displayResults));
+      }
     }
 
     setFuzzResults(results);
     $('#fuzzer-start').prop('disabled', false).text('\u26A1 Start Fuzzing');
-    $('#fuzzer-progress-text').text('Done: ' + total + ' / ' + total);
-    $('#fuzzer-progress-bar').css('width', '100%');
+    $('#fuzzer-stop').hide();
+    if (fuzzerCancel) {
+      $('#fuzzer-progress-text').text('Stopped: ' + results.length + ' / ' + total);
+    } else {
+      $('#fuzzer-progress-text').text('Done: ' + total + ' / ' + total);
+      $('#fuzzer-progress-bar').css('width', '100%');
+    }
+    const hideNoise = $('#fuzzer-hide-noise').is(':checked');
+    const displayResults = hideNoise ? results.filter(r => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+    $('#fuzzer-results').html(fuzzResultsToHtml(displayResults));
   });
 
   $(document).on('click', '#fuzzer-export-csv', function () {
@@ -989,6 +1055,14 @@ export function initPanel(): void {
     clearFuzzResults();
     $('#fuzzer-results').empty();
     $('#fuzzer-progress').hide();
+  });
+
+  $(document).on('change', '#fuzzer-hide-noise', function () {
+    const results = getFuzzResults();
+    if (!results.length) return;
+    const hideNoise = $('#fuzzer-hide-noise').is(':checked');
+    const displayResults = hideNoise ? results.filter(r => r.status !== 0 && r.status !== 404 && r.status !== 410) : results;
+    $('#fuzzer-results').html(fuzzResultsToHtml(displayResults));
   });
 
   // ── Repeater ──
