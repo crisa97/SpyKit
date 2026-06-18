@@ -236,25 +236,31 @@ function handleInterceptorCommand(request, sendResponse) {
         sendResponse({ success: true });
         return;
       }
-      var completed = 0;
-      for (var fi = 0; fi < pending.length; fi++) {
-        (function(req) {
-          chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.continueRequest', {
-            requestId: req.requestId
-          }, function() {
-            if (chrome.runtime.lastError) {
+      var fi = 0;
+      function forwardNext() {
+        if (fi >= pending.length) {
+          sendResponse({ success: true });
+          return;
+        }
+        var req = pending[fi++];
+        chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.continueRequest', {
+          requestId: req.requestId
+        }, function() {
+          if (chrome.runtime.lastError) {
+            if (chrome.runtime.lastError.message.indexOf('Invalid InterceptionId') >= 0) {
+              console.warn('[SpyKit] Forward All: request already continued by Chrome:', req.url);
+              notifyRequestProcessed(tabId, req, 'forwarded');
+            } else {
               console.error('[SpyKit] Forward All failed:', chrome.runtime.lastError.message);
               notifyRequestProcessed(tabId, req, 'error');
-            } else {
-              notifyRequestProcessed(tabId, req, 'forwarded');
             }
-            completed++;
-            if (completed === pending.length) {
-              sendResponse({ success: true });
-            }
-          });
-        })(pending[fi]);
+          } else {
+            notifyRequestProcessed(tabId, req, 'forwarded');
+          }
+          setTimeout(forwardNext, 50);
+        });
       }
+      forwardNext();
       break;
     }
 
@@ -283,17 +289,26 @@ function handleInterceptorCommand(request, sendResponse) {
     case 'dropAll': {
       var pending = session.queue.splice(0);
       notifyQueueChanged(tabId);
-      for (var di = 0; di < pending.length; di++) {
-        (function(req) {
-          chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.failRequest', {
-            requestId: req.requestId, errorReason: 'BlockedByClient'
-          }, function() {
-            chrome.runtime.lastError;
-            notifyRequestProcessed(tabId, req, 'dropped');
-          });
-        })(pending[di]);
+      if (pending.length === 0) {
+        sendResponse({ success: true });
+        return;
       }
-      sendResponse({ success: true });
+      var di = 0;
+      function dropNext() {
+        if (di >= pending.length) {
+          sendResponse({ success: true });
+          return;
+        }
+        var req = pending[di++];
+        chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.failRequest', {
+          requestId: req.requestId, errorReason: 'BlockedByClient'
+        }, function() {
+          chrome.runtime.lastError;
+          notifyRequestProcessed(tabId, req, 'dropped');
+          setTimeout(dropNext, 50);
+        });
+      }
+      dropNext();
       break;
     }
 

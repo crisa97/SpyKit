@@ -14,7 +14,7 @@
             window.postMessage({ type: 'SPYKIT_ACK' }, '*');
             // Flush pending
             for (var i = 0; i < pending.length; i++) {
-                chrome.runtime.sendMessage(pending[i]);
+                try { chrome.runtime.sendMessage(pending[i]); } catch(e) {}
             }
             pending = [];
             return;
@@ -23,7 +23,7 @@
         if (!message.spyId && !message.wsType) return;
 
         if (ready) {
-            chrome.runtime.sendMessage(message);
+            try { chrome.runtime.sendMessage(message); } catch(e) {}
         } else {
             pending.push(message);
         }
@@ -33,5 +33,5 @@
     window.postMessage({ type: 'SPYKIT_ISOLATED_READY' }, '*');
 
     // Also send init
-    chrome.runtime.sendMessage({spyId:'init',url:'none',res:'ok'});
+    try { chrome.runtime.sendMessage({spyId:'init',url:'none',res:'ok'}); } catch(e) {}
 })();
