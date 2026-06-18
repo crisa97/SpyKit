@@ -412,16 +412,18 @@ export function initPanel(): void {
   } catch { /* ignore */ }
 
   // ── Network capture ──
-  if (chrome.devtools) {
-    chrome.devtools.network.getHAR(function (log: any) {
-      for (const entry of log.entries) {
+  try {
+    if (chrome.devtools) {
+      chrome.devtools.network.getHAR(function (log: any) {
+        for (const entry of log.entries) {
+          onData(entry);
+        }
+      });
+      chrome.devtools.network.onRequestFinished.addListener(function (entry: any) {
         onData(entry);
-      }
-    });
-    chrome.devtools.network.onRequestFinished.addListener(function (entry: any) {
-      onData(entry);
-    });
-  }
+      });
+    }
+  } catch { /* ignore */ }
 
   // ── Post-edit security analysis (GraphQL + JWT) ──
   const origEditReq = editRequest;
@@ -1244,44 +1246,63 @@ export function initPanel(): void {
   });
 
   $(document).on('click', '#intercept-btn', function () {
-    const $btn = $(this);
-    if (!isInterceptorAttached()) {
-      const tabId = chrome.devtools.inspectedWindow.tabId;
-      $btn.text('⏳ Attaching...').prop('disabled', true);
-      attachInterceptor(tabId, (success) => {
-        if (success) {
-          toggleIntercept(true);
-          $btn.toggleClass('active', true).text('⏸ Intercept').prop('disabled', false);
-          $('#intercept-panel').show();
-          updateFilterFixedTop();
-        } else {
-          $btn.text('⏸ Intercept').prop('disabled', false);
-          alert(
-            '[SpyKit] Could not attach debugger.\n\n' +
-            'To use Intercept:\n' +
-            '1. Close DevTools\n' +
-            '2. Go to chrome://extensions\n' +
-            '3. Enable "Developer mode"\n' +
-            '4. Click "Service Worker" for SpyKit\n' +
-            '5. Check the console for errors\n' +
-            '6. Reload the extension\n' +
-            '7. Reopen DevTools and try again\n\n' +
-            'If the issue persists, try restarting the browser.'
-          );
+    try {
+      const $btn = $(this);
+      if (!isInterceptorAttached()) {
+        let tabId: number;
+        try {
+          tabId = chrome.devtools.inspectedWindow.tabId;
+        } catch (e: any) {
+          console.error('[SpyKit] Cannot access inspectedWindow:', e.message);
+          alert('[SpyKit] Extension context was invalidated.\n\nPlease close and reopen DevTools to continue using the Interceptor.');
+          return;
         }
-      });
-      return;
+        $btn.text('\u23F3 Attaching...').prop('disabled', true);
+        attachInterceptor(tabId, (success) => {
+          if (success) {
+            toggleIntercept(true);
+            $btn.toggleClass('active', true).text('\u23F8 Intercept').prop('disabled', false);
+            $('#intercept-panel').show();
+            updateFilterFixedTop();
+          } else {
+            $btn.text('\u23F8 Intercept').prop('disabled', false);
+            if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('Extension context invalidated')) {
+              alert('[SpyKit] Extension was reloaded.\n\nPlease close and reopen DevTools, then try again.');
+            } else {
+              alert(
+                '[SpyKit] Could not attach debugger.\n\n' +
+                'To use Intercept:\n' +
+                '1. Close DevTools\n' +
+                '2. Go to chrome://extensions\n' +
+                '3. Enable "Developer mode"\n' +
+                '4. Click "Service Worker" for SpyKit\n' +
+                '5. Check the console for errors\n' +
+                '6. Reload the extension\n' +
+                '7. Reopen DevTools and try again\n\n' +
+                'If the issue persists, try restarting the browser.'
+              );
+            }
+          }
+        });
+        return;
+      }
+      const enable = !isInterceptEnabled();
+      toggleIntercept(enable);
+      $btn.toggleClass('active', enable);
+      if (enable && getInterceptedQueue().length === 0) {
+        $('#intercept-panel').show();
+      }
+      if (!enable && getInterceptedQueue().length === 0) {
+        $('#intercept-panel').hide();
+      }
+      updateFilterFixedTop();
+    } catch (e: any) {
+      if (e.message && e.message.includes('Extension context invalidated')) {
+        alert('[SpyKit] Extension was reloaded. Please close and reopen DevTools to continue.');
+      } else {
+        console.error('[SpyKit] intercept-btn error:', e);
+      }
     }
-    const enable = !isInterceptEnabled();
-    toggleIntercept(enable);
-    $btn.toggleClass('active', enable);
-    if (enable && getInterceptedQueue().length === 0) {
-      $('#intercept-panel').show();
-    }
-    if (!enable && getInterceptedQueue().length === 0) {
-      $('#intercept-panel').hide();
-    }
-    updateFilterFixedTop();
   });
 
   $(document).on('click', '#intercept-forward-all', forwardAllRequests);
@@ -1305,6 +1326,7 @@ export function initPanel(): void {
     const queue = getInterceptedQueue();
     const req = queue.find(r => r.id === id);
     if (!req) return;
+    console.log('[SpyKit] .intercept-item clicked, req:', req);
     $('#intercept-edit-id').val(String(id));
     $('#intercept-edit-url').val(req.url);
     $('#intercept-edit-method').val(req.method);
@@ -1325,6 +1347,7 @@ export function initPanel(): void {
     const method = $('#intercept-edit-method').val() as string;
     const headers = $('#intercept-edit-headers').val() as string;
     const body = $('#intercept-edit-body').val() as string;
+    console.log('[SpyKit] #intercept-edit-forward clicked:', { id, url, method, headers, body });
     editAndForwardRequest(id, url, method, headers, body);
     $('#intercept-edit-overlay').hide();
   });

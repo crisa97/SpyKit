@@ -3,7 +3,8 @@ var connections = {};
 chrome.runtime.onConnect.addListener(function (port) {
   var extensionListener = function (message, sender, sendResponse) {
     if (message.name === "init") {
-      connections[message.tabId] = port;
+      var tabId = message.tabId || (sender.tab && sender.tab.id);
+      if (tabId) connections[tabId] = port;
       return;
     }
   };
@@ -30,5 +31,4 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
       connections[tabId].postMessage(request);
     }
   }
-  return true;
 });

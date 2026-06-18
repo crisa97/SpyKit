@@ -88,7 +88,19 @@ $(document).on('keydown', function (e) {
 
 // Init everything
 $(function () {
-  console.log('SpyKit main script loaded for tab ', chrome.devtools.inspectedWindow.tabId);
+  try {
+    console.log('SpyKit main script loaded for tab ', chrome.devtools.inspectedWindow.tabId);
+  } catch (e: any) {
+    console.error('[SpyKit] Extension context invalidated on init. Please close and reopen DevTools.', e.message);
+    $('body').html(
+      '<div style="padding:20px;color:#e0e0e0;font-family:sans-serif;text-align:center;margin-top:40px">' +
+      '<h2 style="color:#ff6b6b">SpyKit</h2>' +
+      '<p>Extension context was invalidated.</p>' +
+      '<p>Please <strong>close DevTools</strong>, reload the extension from <code>chrome://extensions</code>, and reopen DevTools.</p>' +
+      '</div>'
+    );
+    return;
+  }
 
   // Load mocks from storage (needs to happen before onData)
   const storedMocks = JSON.parse(localStorage.getItem('spykit-mocks') || '[]');

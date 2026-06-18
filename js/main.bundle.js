@@ -2613,29 +2613,75 @@
   }
   function attachInterceptor(tab, callback) {
     tabId = tab;
-    chrome.debugger.attach({ tabId }, "1.3", () => {
-      if (chrome.runtime.lastError) {
-        console.warn("[SpyKit] debugger attach failed:", chrome.runtime.lastError.message);
+    try {
+      if (!chrome.debugger) {
+        console.error("[SpyKit] chrome.debugger API not available");
         if (callback) callback(false);
         return;
       }
-      isAttached = true;
-      chrome.debugger.onEvent.addListener(onDebuggerEvent);
-      chrome.debugger.onDetach.addListener(onDetach);
-      if (callback) callback(true);
-    });
+      chrome.debugger.attach({ tabId }, "1.3", () => {
+        if (chrome.runtime.lastError) {
+          console.warn("[SpyKit] debugger attach failed:", chrome.runtime.lastError.message);
+          if (callback) callback(false);
+          return;
+        }
+        isAttached = true;
+        try {
+          chrome.debugger.onEvent.addListener(onDebuggerEvent);
+          chrome.debugger.onDetach.addListener(onDetach);
+        } catch (e) {
+          console.error("[SpyKit] Failed to add debugger listeners:", e.message);
+          isAttached = false;
+          if (callback) callback(false);
+          return;
+        }
+        if (callback) callback(true);
+      });
+    } catch (e) {
+      console.error("[SpyKit] attachInterceptor exception:", e.message);
+      if (callback) callback(false);
+    }
   }
   function detachInterceptor() {
     if (!isAttached) return;
-    if (isEnabled) {
-      chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
-        chrome.runtime.lastError;
-      });
+    isAttached = false;
+    const copy = [...interceptedQueue];
+    interceptedQueue.length = 0;
+    try {
+      if (onQueueChange) onQueueChange(interceptedQueue);
+      if (isEnabled && copy.length > 0) {
+        console.log("[SpyKit] Detaching with", copy.length, "pending requests, auto-forwarding");
+        let i = 0;
+        const next = () => {
+          if (i >= copy.length) {
+            doDetach();
+            return;
+          }
+          const req = copy[i];
+          chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", { requestId: req.requestId }, () => {
+            if (chrome.runtime.lastError) {
+              console.error("[SpyKit] Detach auto-forward failed:", chrome.runtime.lastError.message);
+            }
+            i++;
+            setTimeout(next, 30);
+          });
+        };
+        next();
+      } else {
+        doDetach();
+      }
+    } catch (e) {
+      console.error("[SpyKit] detachInterceptor exception:", e.message);
+      doDetach();
     }
+  }
+  function doDetach() {
+    isEnabled = false;
+    chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
+      chrome.runtime.lastError;
+    });
     chrome.debugger.detach({ tabId }, () => {
       chrome.runtime.lastError;
-      isAttached = false;
-      isEnabled = false;
       chrome.debugger.onEvent.removeListener(onDebuggerEvent);
       chrome.debugger.onDetach.removeListener(onDetach);
     });
@@ -2643,24 +2689,57 @@
   function toggleIntercept(enable) {
     if (!isAttached || enable === isEnabled) return;
     isEnabled = enable;
-    if (enable) {
-      chrome.debugger.sendCommand({ tabId }, "Fetch.enable", {
-        patterns: [{ requestStage: "Request" }]
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.warn("[SpyKit] Fetch.enable failed:", chrome.runtime.lastError.message);
-          isEnabled = false;
+    try {
+      if (enable) {
+        chrome.debugger.sendCommand({ tabId }, "Fetch.enable", {
+          patterns: [{ requestStage: "Request" }]
+        }, (result) => {
+          if (chrome.runtime.lastError) {
+            console.error("[SpyKit] Fetch.enable failed:", chrome.runtime.lastError.message);
+            isEnabled = false;
+          }
+        });
+      } else {
+        const copy = [...interceptedQueue];
+        interceptedQueue.length = 0;
+        if (onQueueChange) onQueueChange(interceptedQueue);
+        if (copy.length > 0) {
+          console.log("[SpyKit] Disabling intercept, auto-forwarding", copy.length, "pending requests");
+          let i = 0;
+          const next = () => {
+            if (i >= copy.length) {
+              chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
+                chrome.runtime.lastError;
+              });
+              return;
+            }
+            const req = copy[i];
+            chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", { requestId: req.requestId }, () => {
+              if (chrome.runtime.lastError) {
+                console.error("[SpyKit] Auto-forward failed:", chrome.runtime.lastError.message);
+              }
+              i++;
+              setTimeout(next, 30);
+            });
+          };
+          next();
+        } else {
+          chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
+            chrome.runtime.lastError;
+          });
         }
-      });
-    } else {
-      chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
-        chrome.runtime.lastError;
-      });
+      }
+    } catch (e) {
+      console.error("[SpyKit] toggleIntercept exception:", e.message);
+      isEnabled = false;
     }
   }
   function onDetach() {
     isAttached = false;
     isEnabled = false;
+    [...interceptedQueue];
+    interceptedQueue.length = 0;
+    if (onQueueChange) onQueueChange(interceptedQueue);
     chrome.debugger.onEvent.removeListener(onDebuggerEvent);
     chrome.debugger.onDetach.removeListener(onDetach);
   }
@@ -2686,45 +2765,90 @@
     interceptedQueue.push(req);
     if (onQueueChange) onQueueChange(interceptedQueue);
   }
-  function forwardRequest(id2, modifications) {
+  function toBase64(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  function removeFromQueue(id2) {
     const idx = interceptedQueue.findIndex((r) => r.id === id2);
-    if (idx < 0) return;
+    if (idx < 0) return null;
     const req = interceptedQueue[idx];
+    interceptedQueue.splice(idx, 1);
+    if (onQueueChange) onQueueChange(interceptedQueue);
+    return req;
+  }
+  function sendCommandWithCleanup(cmd, params, req, action) {
+    if (!isAttached) return;
+    try {
+      chrome.debugger.sendCommand({ tabId }, cmd, params, () => {
+        if (chrome.runtime.lastError) {
+          console.error("[SpyKit]", cmd, "failed:", chrome.runtime.lastError.message);
+          if (onRequestProcessed) onRequestProcessed(req, "error");
+          return;
+        }
+        if (onRequestProcessed) onRequestProcessed(req, action);
+      });
+    } catch (e) {
+      console.error("[SpyKit]", cmd, "exception:", e.message);
+      if (onRequestProcessed) onRequestProcessed(req, "error");
+    }
+  }
+  function forwardRequest(id2, modifications) {
+    const req = removeFromQueue(id2);
+    if (!req) return;
     const p = { requestId: req.requestId };
     if (modifications) {
       if (modifications.url !== void 0) p.url = modifications.url;
       if (modifications.method !== void 0) p.method = modifications.method;
       if (modifications.headers !== void 0) p.headers = modifications.headers;
-      if (modifications.postData !== void 0) p.postData = modifications.postData;
+      if (modifications.postData !== void 0) p.postData = toBase64(modifications.postData);
     }
-    chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", p, () => {
-      chrome.runtime.lastError;
-    });
-    if (onRequestProcessed) onRequestProcessed(req, "forwarded");
-    interceptedQueue.splice(idx, 1);
-    if (onQueueChange) onQueueChange(interceptedQueue);
+    sendCommandWithCleanup("Fetch.continueRequest", p, req, "forwarded");
   }
   function forwardAllRequests() {
     const copy = [...interceptedQueue];
-    for (const req of copy) forwardRequest(req.id);
+    if (copy.length === 0) return;
+    interceptedQueue.length = 0;
+    if (onQueueChange) onQueueChange(interceptedQueue);
+    let i = 0;
+    const next = () => {
+      if (i >= copy.length) return;
+      const req = copy[i];
+      const p = { requestId: req.requestId };
+      chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", p, () => {
+        if (chrome.runtime.lastError) {
+          console.error("[SpyKit] Forward All failed:", chrome.runtime.lastError.message);
+        }
+        if (onRequestProcessed) onRequestProcessed(req, "forwarded");
+      });
+      i++;
+      setTimeout(next, 50);
+    };
+    next();
   }
   function dropRequest(id2) {
-    const idx = interceptedQueue.findIndex((r) => r.id === id2);
-    if (idx < 0) return;
-    const req = interceptedQueue[idx];
-    chrome.debugger.sendCommand({ tabId }, "Fetch.failRequest", {
-      requestId: req.requestId,
-      errorReason: "BlockedByClient"
-    }, () => {
-      chrome.runtime.lastError;
-    });
-    if (onRequestProcessed) onRequestProcessed(req, "dropped");
-    interceptedQueue.splice(idx, 1);
-    if (onQueueChange) onQueueChange(interceptedQueue);
+    const req = removeFromQueue(id2);
+    if (!req) return;
+    sendCommandWithCleanup("Fetch.failRequest", { requestId: req.requestId, errorReason: "BlockedByClient" }, req, "dropped");
   }
   function dropAllRequests() {
     const copy = [...interceptedQueue];
-    for (const req of copy) dropRequest(req.id);
+    if (copy.length === 0) return;
+    interceptedQueue.length = 0;
+    if (onQueueChange) onQueueChange(interceptedQueue);
+    let i = 0;
+    const next = () => {
+      if (i >= copy.length) return;
+      const req = copy[i];
+      chrome.debugger.sendCommand({ tabId }, "Fetch.failRequest", { requestId: req.requestId, errorReason: "BlockedByClient" }, () => {
+        if (chrome.runtime.lastError) {
+          console.error("[SpyKit] Drop All failed:", chrome.runtime.lastError.message);
+        }
+        if (onRequestProcessed) onRequestProcessed(req, "dropped");
+      });
+      i++;
+      setTimeout(next, 50);
+    };
+    next();
   }
   function editAndForwardRequest(id2, url2, method2, headers2, body2) {
     const parsedHeaders = [];
@@ -3073,15 +3197,18 @@
       });
     } catch {
     }
-    if (chrome.devtools) {
-      chrome.devtools.network.getHAR(function(log) {
-        for (const entry of log.entries) {
+    try {
+      if (chrome.devtools) {
+        chrome.devtools.network.getHAR(function(log) {
+          for (const entry of log.entries) {
+            onData(entry);
+          }
+        });
+        chrome.devtools.network.onRequestFinished.addListener(function(entry) {
           onData(entry);
-        }
-      });
-      chrome.devtools.network.onRequestFinished.addListener(function(entry) {
-        onData(entry);
-      });
+        });
+      }
+    } catch {
     }
     const origEditReq = editRequest;
     const patchedEditReq = function(tr) {
@@ -3875,35 +4002,54 @@
       onData(entry);
     });
     $(document).on("click", "#intercept-btn", function() {
-      const $btn = $(this);
-      if (!isInterceptorAttached()) {
-        const tabId2 = chrome.devtools.inspectedWindow.tabId;
-        $btn.text("⏳ Attaching...").prop("disabled", true);
-        attachInterceptor(tabId2, (success) => {
-          if (success) {
-            toggleIntercept(true);
-            $btn.toggleClass("active", true).text("⏸ Intercept").prop("disabled", false);
-            $("#intercept-panel").show();
-            updateFilterFixedTop();
-          } else {
-            $btn.text("⏸ Intercept").prop("disabled", false);
-            alert(
-              '[SpyKit] Could not attach debugger.\n\nTo use Intercept:\n1. Close DevTools\n2. Go to chrome://extensions\n3. Enable "Developer mode"\n4. Click "Service Worker" for SpyKit\n5. Check the console for errors\n6. Reload the extension\n7. Reopen DevTools and try again\n\nIf the issue persists, try restarting the browser.'
-            );
+      try {
+        const $btn = $(this);
+        if (!isInterceptorAttached()) {
+          let tabId2;
+          try {
+            tabId2 = chrome.devtools.inspectedWindow.tabId;
+          } catch (e) {
+            console.error("[SpyKit] Cannot access inspectedWindow:", e.message);
+            alert("[SpyKit] Extension context was invalidated.\n\nPlease close and reopen DevTools to continue using the Interceptor.");
+            return;
           }
-        });
-        return;
+          $btn.text("⏳ Attaching...").prop("disabled", true);
+          attachInterceptor(tabId2, (success) => {
+            if (success) {
+              toggleIntercept(true);
+              $btn.toggleClass("active", true).text("⏸ Intercept").prop("disabled", false);
+              $("#intercept-panel").show();
+              updateFilterFixedTop();
+            } else {
+              $btn.text("⏸ Intercept").prop("disabled", false);
+              if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+                alert("[SpyKit] Extension was reloaded.\n\nPlease close and reopen DevTools, then try again.");
+              } else {
+                alert(
+                  '[SpyKit] Could not attach debugger.\n\nTo use Intercept:\n1. Close DevTools\n2. Go to chrome://extensions\n3. Enable "Developer mode"\n4. Click "Service Worker" for SpyKit\n5. Check the console for errors\n6. Reload the extension\n7. Reopen DevTools and try again\n\nIf the issue persists, try restarting the browser.'
+                );
+              }
+            }
+          });
+          return;
+        }
+        const enable = !isInterceptEnabled();
+        toggleIntercept(enable);
+        $btn.toggleClass("active", enable);
+        if (enable && getInterceptedQueue().length === 0) {
+          $("#intercept-panel").show();
+        }
+        if (!enable && getInterceptedQueue().length === 0) {
+          $("#intercept-panel").hide();
+        }
+        updateFilterFixedTop();
+      } catch (e) {
+        if (e.message && e.message.includes("Extension context invalidated")) {
+          alert("[SpyKit] Extension was reloaded. Please close and reopen DevTools to continue.");
+        } else {
+          console.error("[SpyKit] intercept-btn error:", e);
+        }
       }
-      const enable = !isInterceptEnabled();
-      toggleIntercept(enable);
-      $btn.toggleClass("active", enable);
-      if (enable && getInterceptedQueue().length === 0) {
-        $("#intercept-panel").show();
-      }
-      if (!enable && getInterceptedQueue().length === 0) {
-        $("#intercept-panel").hide();
-      }
-      updateFilterFixedTop();
     });
     $(document).on("click", "#intercept-forward-all", forwardAllRequests);
     $(document).on("click", "#intercept-drop-all", dropAllRequests);
@@ -3923,6 +4069,7 @@
       const queue = getInterceptedQueue();
       const req = queue.find((r) => r.id === id2);
       if (!req) return;
+      console.log("[SpyKit] .intercept-item clicked, req:", req);
       $("#intercept-edit-id").val(String(id2));
       $("#intercept-edit-url").val(req.url);
       $("#intercept-edit-method").val(req.method);
@@ -3941,6 +4088,7 @@
       const method2 = $("#intercept-edit-method").val();
       const headers2 = $("#intercept-edit-headers").val();
       const body2 = $("#intercept-edit-body").val();
+      console.log("[SpyKit] #intercept-edit-forward clicked:", { id: id2, url: url2, method: method2, headers: headers2, body: body2 });
       editAndForwardRequest(id2, url2, method2, headers2, body2);
       $("#intercept-edit-overlay").hide();
     });
@@ -4621,7 +4769,15 @@
     }
   });
   $(function() {
-    console.log("SpyKit main script loaded for tab ", chrome.devtools.inspectedWindow.tabId);
+    try {
+      console.log("SpyKit main script loaded for tab ", chrome.devtools.inspectedWindow.tabId);
+    } catch (e) {
+      console.error("[SpyKit] Extension context invalidated on init. Please close and reopen DevTools.", e.message);
+      $("body").html(
+        '<div style="padding:20px;color:#e0e0e0;font-family:sans-serif;text-align:center;margin-top:40px"><h2 style="color:#ff6b6b">SpyKit</h2><p>Extension context was invalidated.</p><p>Please <strong>close DevTools</strong>, reload the extension from <code>chrome://extensions</code>, and reopen DevTools.</p></div>'
+      );
+      return;
+    }
     const storedMocks = JSON.parse(localStorage.getItem("spykit-mocks") || "[]");
     mocks.splice(0, mocks.length, ...storedMocks);
     JSON.parse(localStorage.getItem("spykit-bookmarks") || "[]");
