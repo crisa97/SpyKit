@@ -2589,268 +2589,123 @@
   function intruderResultsToHtml(results) {
     return fuzzResultsToHtml(results);
   }
-  let tabId = -1;
-  let isAttached = false;
-  let isEnabled = false;
-  const interceptedQueue = [];
-  let requestCounter = 0;
-  let onQueueChange = null;
-  let onRequestProcessed = null;
+  let _tabId = -1;
+  let _attached = false;
+  let _enabled = false;
+  let _queue = [];
+  let _onQueueChange = null;
+  let _onRequestProcessed = null;
+  let _listenerRegistered = false;
   function setOnQueueChange(cb) {
-    onQueueChange = cb;
+    _onQueueChange = cb;
   }
   function setOnRequestProcessed(cb) {
-    onRequestProcessed = cb;
+    _onRequestProcessed = cb;
   }
   function getInterceptedQueue() {
-    return interceptedQueue;
+    return _queue;
   }
   function isInterceptEnabled() {
-    return isEnabled;
+    return _enabled;
   }
   function isInterceptorAttached() {
-    return isAttached;
+    return _attached;
+  }
+  function msg(action, extra = {}) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({
+        spyInterceptor: true,
+        tabId: _tabId,
+        action,
+        ...extra
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error("[SpyKit] interceptor msg error:", chrome.runtime.lastError.message);
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        resolve(response || { success: false, error: "No response from service worker" });
+      });
+    });
+  }
+  function registerListener() {
+    if (_listenerRegistered) return;
+    _listenerRegistered = true;
+    chrome.runtime.onMessage.addListener((message) => {
+      if (!message.spyInterceptorEvent) return;
+      switch (message.event) {
+        case "queueChanged":
+          _queue = message.data && message.data.queue || [];
+          if (_onQueueChange) _onQueueChange(_queue);
+          break;
+        case "requestProcessed":
+          if (_onRequestProcessed) {
+            _onRequestProcessed(message.data.request, message.data.action);
+          }
+          break;
+        case "debuggerDetached":
+          _attached = false;
+          _enabled = false;
+          _queue = [];
+          if (_onQueueChange) _onQueueChange(_queue);
+          break;
+      }
+    });
   }
   function attachInterceptor(tab, callback) {
-    tabId = tab;
-    try {
-      if (!chrome.debugger) {
-        console.error("[SpyKit] chrome.debugger API not available");
-        if (callback) callback(false);
-        return;
+    registerListener();
+    _tabId = tab;
+    msg("attach").then((res) => {
+      if (res.success) {
+        _attached = true;
+      } else {
+        console.error("[SpyKit] attachInterceptor failed:", res.error);
       }
-      chrome.debugger.attach({ tabId }, "1.3", () => {
-        if (chrome.runtime.lastError) {
-          console.warn("[SpyKit] debugger attach failed:", chrome.runtime.lastError.message);
-          if (callback) callback(false);
-          return;
-        }
-        isAttached = true;
-        try {
-          chrome.debugger.onEvent.addListener(onDebuggerEvent);
-          chrome.debugger.onDetach.addListener(onDetach);
-        } catch (e) {
-          console.error("[SpyKit] Failed to add debugger listeners:", e.message);
-          isAttached = false;
-          if (callback) callback(false);
-          return;
-        }
-        if (callback) callback(true);
-      });
-    } catch (e) {
-      console.error("[SpyKit] attachInterceptor exception:", e.message);
-      if (callback) callback(false);
-    }
+      if (callback) callback(!!res.success);
+    });
   }
   function detachInterceptor() {
-    if (!isAttached) return;
-    isAttached = false;
-    const copy = [...interceptedQueue];
-    interceptedQueue.length = 0;
-    try {
-      if (onQueueChange) onQueueChange(interceptedQueue);
-      if (isEnabled && copy.length > 0) {
-        console.log("[SpyKit] Detaching with", copy.length, "pending requests, auto-forwarding");
-        let i = 0;
-        const next = () => {
-          if (i >= copy.length) {
-            doDetach();
-            return;
-          }
-          const req = copy[i];
-          chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", { requestId: req.requestId }, () => {
-            if (chrome.runtime.lastError) {
-              console.error("[SpyKit] Detach auto-forward failed:", chrome.runtime.lastError.message);
-            }
-            i++;
-            setTimeout(next, 30);
-          });
-        };
-        next();
-      } else {
-        doDetach();
-      }
-    } catch (e) {
-      console.error("[SpyKit] detachInterceptor exception:", e.message);
-      doDetach();
-    }
-  }
-  function doDetach() {
-    isEnabled = false;
-    chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
-      chrome.runtime.lastError;
-    });
-    chrome.debugger.detach({ tabId }, () => {
-      chrome.runtime.lastError;
-      chrome.debugger.onEvent.removeListener(onDebuggerEvent);
-      chrome.debugger.onDetach.removeListener(onDetach);
-    });
+    if (!_attached) return;
+    _attached = false;
+    _enabled = false;
+    _queue = [];
+    msg("detach");
   }
   function toggleIntercept(enable) {
-    if (!isAttached || enable === isEnabled) return;
-    isEnabled = enable;
-    try {
-      if (enable) {
-        chrome.debugger.sendCommand({ tabId }, "Fetch.enable", {
-          patterns: [{ requestStage: "Request" }]
-        }, (result) => {
-          if (chrome.runtime.lastError) {
-            console.error("[SpyKit] Fetch.enable failed:", chrome.runtime.lastError.message);
-            isEnabled = false;
-          }
-        });
-      } else {
-        const copy = [...interceptedQueue];
-        interceptedQueue.length = 0;
-        if (onQueueChange) onQueueChange(interceptedQueue);
-        if (copy.length > 0) {
-          console.log("[SpyKit] Disabling intercept, auto-forwarding", copy.length, "pending requests");
-          let i = 0;
-          const next = () => {
-            if (i >= copy.length) {
-              chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
-                chrome.runtime.lastError;
-              });
-              return;
-            }
-            const req = copy[i];
-            chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", { requestId: req.requestId }, () => {
-              if (chrome.runtime.lastError) {
-                console.error("[SpyKit] Auto-forward failed:", chrome.runtime.lastError.message);
-              }
-              i++;
-              setTimeout(next, 30);
-            });
-          };
-          next();
-        } else {
-          chrome.debugger.sendCommand({ tabId }, "Fetch.disable", () => {
-            chrome.runtime.lastError;
-          });
-        }
-      }
-    } catch (e) {
-      console.error("[SpyKit] toggleIntercept exception:", e.message);
-      isEnabled = false;
-    }
-  }
-  function onDetach() {
-    isAttached = false;
-    isEnabled = false;
-    [...interceptedQueue];
-    interceptedQueue.length = 0;
-    if (onQueueChange) onQueueChange(interceptedQueue);
-    chrome.debugger.onEvent.removeListener(onDebuggerEvent);
-    chrome.debugger.onDetach.removeListener(onDetach);
-  }
-  function normalizeHeaders(h) {
-    if (!h) return [];
-    if (Array.isArray(h)) return h;
-    if (typeof h === "object") {
-      return Object.keys(h).map((name) => ({ name, value: String(h[name]) }));
-    }
-    return [];
-  }
-  function onDebuggerEvent(source, method2, params) {
-    if (method2 !== "Fetch.requestPaused") return;
-    const req = {
-      id: ++requestCounter,
-      requestId: params.requestId,
-      url: params.request.url,
-      method: params.request.method,
-      headers: normalizeHeaders(params.request.headers),
-      postData: params.request.postData,
-      timestamp: Date.now()
-    };
-    interceptedQueue.push(req);
-    if (onQueueChange) onQueueChange(interceptedQueue);
-  }
-  function toBase64(str) {
-    return btoa(unescape(encodeURIComponent(str)));
-  }
-  function removeFromQueue(id2) {
-    const idx = interceptedQueue.findIndex((r) => r.id === id2);
-    if (idx < 0) return null;
-    const req = interceptedQueue[idx];
-    interceptedQueue.splice(idx, 1);
-    if (onQueueChange) onQueueChange(interceptedQueue);
-    return req;
-  }
-  function sendCommandWithCleanup(cmd, params, req, action) {
-    if (!isAttached) return;
-    try {
-      chrome.debugger.sendCommand({ tabId }, cmd, params, () => {
-        if (chrome.runtime.lastError) {
-          console.error("[SpyKit]", cmd, "failed:", chrome.runtime.lastError.message);
-          if (onRequestProcessed) onRequestProcessed(req, "error");
-          return;
-        }
-        if (onRequestProcessed) onRequestProcessed(req, action);
+    if (!_attached || enable === _enabled) return;
+    _enabled = enable;
+    if (enable) {
+      msg("enableIntercept").then((res) => {
+        if (!res.success) _enabled = false;
       });
-    } catch (e) {
-      console.error("[SpyKit]", cmd, "exception:", e.message);
-      if (onRequestProcessed) onRequestProcessed(req, "error");
+    } else {
+      msg("disableIntercept").then((res) => {
+        if (!res.success) _enabled = true;
+      });
     }
   }
   function forwardRequest(id2, modifications) {
-    const req = removeFromQueue(id2);
+    const req = _queue.find((r) => r.id === id2);
     if (!req) return;
-    const p = { requestId: req.requestId };
-    if (modifications) {
-      if (modifications.url !== void 0) p.url = modifications.url;
-      if (modifications.method !== void 0) p.method = modifications.method;
-      if (modifications.headers !== void 0) p.headers = modifications.headers;
-      if (modifications.postData !== void 0) p.postData = toBase64(modifications.postData);
+    const extra = { requestId: req.requestId };
+    {
+      msg("forward", extra);
     }
-    sendCommandWithCleanup("Fetch.continueRequest", p, req, "forwarded");
   }
   function forwardAllRequests() {
-    const copy = [...interceptedQueue];
-    if (copy.length === 0) return;
-    interceptedQueue.length = 0;
-    if (onQueueChange) onQueueChange(interceptedQueue);
-    let i = 0;
-    const next = () => {
-      if (i >= copy.length) return;
-      const req = copy[i];
-      const p = { requestId: req.requestId };
-      chrome.debugger.sendCommand({ tabId }, "Fetch.continueRequest", p, () => {
-        if (chrome.runtime.lastError) {
-          console.error("[SpyKit] Forward All failed:", chrome.runtime.lastError.message);
-        }
-        if (onRequestProcessed) onRequestProcessed(req, "forwarded");
-      });
-      i++;
-      setTimeout(next, 50);
-    };
-    next();
+    msg("forwardAll");
   }
   function dropRequest(id2) {
-    const req = removeFromQueue(id2);
+    const req = _queue.find((r) => r.id === id2);
     if (!req) return;
-    sendCommandWithCleanup("Fetch.failRequest", { requestId: req.requestId, errorReason: "BlockedByClient" }, req, "dropped");
+    msg("drop", { requestId: req.requestId });
   }
   function dropAllRequests() {
-    const copy = [...interceptedQueue];
-    if (copy.length === 0) return;
-    interceptedQueue.length = 0;
-    if (onQueueChange) onQueueChange(interceptedQueue);
-    let i = 0;
-    const next = () => {
-      if (i >= copy.length) return;
-      const req = copy[i];
-      chrome.debugger.sendCommand({ tabId }, "Fetch.failRequest", { requestId: req.requestId, errorReason: "BlockedByClient" }, () => {
-        if (chrome.runtime.lastError) {
-          console.error("[SpyKit] Drop All failed:", chrome.runtime.lastError.message);
-        }
-        if (onRequestProcessed) onRequestProcessed(req, "dropped");
-      });
-      i++;
-      setTimeout(next, 50);
-    };
-    next();
+    msg("dropAll");
   }
   function editAndForwardRequest(id2, url2, method2, headers2, body2) {
+    const req = _queue.find((r) => r.id === id2);
+    if (!req) return;
     const parsedHeaders = [];
     for (const line of headers2.split("\n")) {
       const idx = line.indexOf(":");
@@ -2858,7 +2713,8 @@
         parsedHeaders.push({ name: line.substring(0, idx).trim(), value: line.substring(idx + 1).trim() });
       }
     }
-    forwardRequest(id2, {
+    msg("editAndForward", {
+      requestId: req.requestId,
       url: url2,
       method: method2,
       headers: parsedHeaders,
@@ -4005,16 +3861,16 @@
       try {
         const $btn = $(this);
         if (!isInterceptorAttached()) {
-          let tabId2;
+          let tabId;
           try {
-            tabId2 = chrome.devtools.inspectedWindow.tabId;
+            tabId = chrome.devtools.inspectedWindow.tabId;
           } catch (e) {
             console.error("[SpyKit] Cannot access inspectedWindow:", e.message);
             alert("[SpyKit] Extension context was invalidated.\n\nPlease close and reopen DevTools to continue using the Interceptor.");
             return;
           }
           $btn.text("⏳ Attaching...").prop("disabled", true);
-          attachInterceptor(tabId2, (success) => {
+          attachInterceptor(tabId, (success) => {
             if (success) {
               toggleIntercept(true);
               $btn.toggleClass("active", true).text("⏸ Intercept").prop("disabled", false);
@@ -4415,15 +4271,15 @@
     });
   }
   const connections = /* @__PURE__ */ new Map();
-  function handleWSMessage(msg) {
-    const wsId = msg.wsId;
+  function handleWSMessage(msg2) {
+    const wsId = msg2.wsId;
     if (!connections.has(wsId)) {
-      if (msg.wsType === "open") {
+      if (msg2.wsType === "open") {
         connections.set(wsId, {
           wsId,
-          url: msg.url || "unknown",
+          url: msg2.url || "unknown",
           messages: [],
-          opened: msg.timestamp || Date.now(),
+          opened: msg2.timestamp || Date.now(),
           active: true
         });
       }
@@ -4431,22 +4287,22 @@
     }
     const conn = connections.get(wsId);
     let direction = "event";
-    if (msg.wsType === "send") direction = "sent";
-    else if (msg.wsType === "message") direction = "received";
+    if (msg2.wsType === "send") direction = "sent";
+    else if (msg2.wsType === "message") direction = "received";
     conn.messages.push({
       wsId,
       url: conn.url,
-      type: msg.wsType,
-      data: msg.data,
-      dataLength: msg.dataLength,
-      code: msg.code,
-      reason: msg.reason,
-      timestamp: msg.timestamp || Date.now(),
+      type: msg2.wsType,
+      data: msg2.data,
+      dataLength: msg2.dataLength,
+      code: msg2.code,
+      reason: msg2.reason,
+      timestamp: msg2.timestamp || Date.now(),
       direction
     });
-    if (msg.wsType === "close") {
+    if (msg2.wsType === "close") {
       conn.active = false;
-      conn.closed = msg.timestamp || Date.now();
+      conn.closed = msg2.timestamp || Date.now();
     }
   }
   function getWSConnections() {
@@ -4472,16 +4328,16 @@
       html += `<div style="color:#888;font-size:10px;word-break:break-all">${conn.url}</div>`;
       if (conn.messages.length) {
         html += `<div style="max-height:200px;overflow-y:auto;margin-top:4px">`;
-        for (const msg of conn.messages.slice(-20)) {
-          const ts = new Date(msg.timestamp).toLocaleTimeString();
-          const dirIcon = msg.direction === "sent" ? "↑" : msg.direction === "received" ? "↓" : "○";
-          const dirColor = msg.direction === "sent" ? "#7ab7ef" : msg.direction === "received" ? "#44cc44" : "#888";
-          const dataPreview = msg.data ? msg.data.length > 80 ? msg.data.substring(0, 80) + "..." : msg.data : "";
+        for (const msg2 of conn.messages.slice(-20)) {
+          const ts = new Date(msg2.timestamp).toLocaleTimeString();
+          const dirIcon = msg2.direction === "sent" ? "↑" : msg2.direction === "received" ? "↓" : "○";
+          const dirColor = msg2.direction === "sent" ? "#7ab7ef" : msg2.direction === "received" ? "#44cc44" : "#888";
+          const dataPreview = msg2.data ? msg2.data.length > 80 ? msg2.data.substring(0, 80) + "..." : msg2.data : "";
           html += `<div style="font-size:10px;padding:2px 0;border-bottom:1px solid #222">`;
           html += `<span style="color:${dirColor}">${dirIcon}</span> `;
           html += `<span style="color:#888">${ts}</span> `;
           html += `<span style="color:#eee;font-family:monospace">${dataPreview}</span>`;
-          if (msg.type === "close") html += ` <span style="color:#ffaa00">[closed code=${msg.code}]</span>`;
+          if (msg2.type === "close") html += ` <span style="color:#ffaa00">[closed code=${msg2.code}]</span>`;
           html += `</div>`;
         }
         html += `</div>`;
