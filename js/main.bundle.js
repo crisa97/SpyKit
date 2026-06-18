@@ -1434,7 +1434,12 @@
       }
     }
     if (url2.protocol) item.request.url.protocol = url2.protocol.replace(":", "");
-    if (url2.hostname) item.request.url.host = url2.hostname.split(".");
+    try {
+      var fullHost = new URL(r.url).hostname;
+      if (fullHost) item.request.url.host = fullHost.split(".");
+    } catch (e) {
+      if (url2.hostname) item.request.url.host = url2.hostname.split(".");
+    }
     if (url2.pathname) item.request.url.path = url2.pathname.replace(/^\//, "").split("/");
     if (url2.search) {
       const qs = url2.search.replace(/^\?/, "").split("&");

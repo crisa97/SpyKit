@@ -22,7 +22,12 @@ export function requestToPostmanItem(data: CapturedEntry): any {
     }
   }
   if (url.protocol) item.request.url.protocol = url.protocol.replace(':', '');
-  if (url.hostname) item.request.url.host = url.hostname.split('.');
+  try {
+    var fullHost = new URL(r.url).hostname;
+    if (fullHost) item.request.url.host = fullHost.split('.');
+  } catch(e) {
+    if (url.hostname) item.request.url.host = url.hostname.split('.');
+  }
   if (url.pathname) item.request.url.path = url.pathname.replace(/^\//, '').split('/');
   if (url.search) {
     const qs = url.search.replace(/^\?/, '').split('&');
