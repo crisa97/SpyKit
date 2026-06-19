@@ -1,7 +1,6 @@
 import { values, rows, ROW_HEIGHT, selected, dialogOpened, largeContent, largeContentEncoding, formDirty,
          setDialogOpened, setSelected, setLargeContent, setContentScriptLoaded, setFormDirty,
          rootId, mocks, splitter, splitDir, setRateLimitDelay, rateLimitDelay } from '../state';
-import type { CapturedEntry } from '../types/index';
 import { format, headersToStr, getStatusHint, toCurl, downloadJSON, copyToClipboard } from '../core/utils';
 import { onData, applyFilters, applyPagination, doSearch, getRequestText } from '../network/capture';
 import { loadPersistedData, startAutoSave, saveBookmark, addBlockedDomain } from '../core/storage';
@@ -11,12 +10,13 @@ import { handleRESTResponse } from '../rest/client';
 import { clearBodyHighlights } from './body-search';
 import { checkScroll } from './scroll';
 import { detectGraphQL } from '../security/graphql';
-import { findJWTInText, jwtToHtml } from '../security/jwt';
+import { findJWTInText, jwtToHtml, syntaxHighlightJSON } from '../security/jwt';
 import { analyzeAuth, authFindingsToHtml } from '../security/auth';
 import { scanForReflections, scanResultsToHtml } from '../security/scanner';
 import { checkSecurityHeaders } from '../security/headers';
 import { checkCORS } from '../security/cors';
 import { parseCookies, cookieHtml } from '../security/cookies';
+import { scanForSecrets } from '../security/secrets';
 import { genSnippets } from '../rest/export';
 import { exportAsFormat, exportAsCSV, exportAsHAR } from '../rest/export';
 import { requestToPostmanItem } from '../rest/postman';
@@ -179,10 +179,11 @@ export function editRequest(tr: JQuery): void {
   if (data.getContent) {
     data.getContent(function (content: string, encoding: string) {
       if (mime2.indexOf('image') >= 0) {
+        const mimeType = data.response?.content?.mimeType || 'image/png';
         const img = '<a target="_blank" href="' + data.request.url + '"><img height="100px" src="data:' +
-          data.response.content.mimeType.toLowerCase() + ';' + encoding + ',' + (content) + '"/></a>';
+          mimeType.toLowerCase() + ';' + encoding + ',' + (content) + '"/></a>';
         $('#form-body2').val('').hide();
-        $('#form-body2-image').html($(img));
+        $('#form-body2-image').empty().append($(img));
         $('#form-label-body2').attr('for', 'form-body2-image');
       } else {
         if (!content) {
@@ -507,6 +508,31 @@ export function initPanel(): void {
         $('#scan-results-container').html(scanResultsToHtml(scanResults));
       } else {
         $scanContainer.remove();
+      }
+
+      // Secrets detection
+      const secrets = scanForSecrets(allText);
+      if (secrets.length) {
+        const counts: { [key: string]: number } = {};
+        for (const s of secrets) {
+          counts[s.type] = (counts[s.type] || 0) + 1;
+        }
+        let warnHtml = '';
+        for (const type in counts) {
+          warnHtml += '<span class="sec-found">\u26A0 ' + type + ': ' + counts[type] + '</span> ';
+        }
+        $('#secrets-warning').html(warnHtml);
+      } else {
+        $('#secrets-warning').html('');
+      }
+
+      // Hex button show/hide
+      const mimeCheck = (data.response?.content?.mimeType || '').toLowerCase();
+      const isText = mimeCheck.indexOf('text') >= 0 || mimeCheck.indexOf('json') >= 0 || mimeCheck.indexOf('xml') >= 0 || mimeCheck.indexOf('html') >= 0 || mimeCheck.indexOf('javascript') >= 0;
+      if (mimeCheck && !isText) {
+        $('#body-hex-btn').show();
+      } else {
+        $('#body-hex-btn').hide();
       }
     }, 50);
   };
@@ -1274,7 +1300,7 @@ export function initPanel(): void {
             updateFilterFixedTop();
           } else {
             $btn.text('\u23F8 Intercept').prop('disabled', false);
-            if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('Extension context invalidated')) {
+            if (chrome.runtime.lastError?.message?.includes('Extension context invalidated')) {
               alert('[SpyKit] Extension was reloaded.\n\nPlease close and reopen DevTools, then try again.');
             } else {
               alert(

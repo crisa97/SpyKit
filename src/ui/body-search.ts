@@ -36,7 +36,7 @@ export function highlightBodyText($ta: JQuery, term: string): void {
   const pos = $ta.position();
 
   overlay.css({
-    position: 'absolute' as any,
+    position: 'absolute',
     top: pos.top,
     left: pos.left,
     width: $ta.outerWidth(),
@@ -53,7 +53,7 @@ export function highlightBodyText($ta: JQuery, term: string): void {
     border: 'none',
     wordWrap: 'break-word',
     boxSizing: 'border-box',
-  });
+  } as any);
 
   $parent.append(overlay);
   $ta.css('color', 'transparent').addClass('has-body-highlight');

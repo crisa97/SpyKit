@@ -97,7 +97,7 @@ export function detachInterceptor(): void {
   _attached = false;
   _enabled = false;
   _queue = [];
-  msg('detach');
+  msg('detach').catch((e: any) => console.error('[SpyKit] detach threw:', e.message));
 }
 
 export function toggleIntercept(enable: boolean): void {
@@ -128,24 +128,24 @@ export function forwardRequest(id: number, modifications?: {
     if (modifications.method) extra.method = modifications.method;
     if (modifications.headers) extra.headers = modifications.headers;
     if (modifications.postData) extra.postData = modifications.postData;
-    msg('editAndForward', extra);
+    msg('editAndForward', extra).catch((e: any) => console.error('[SpyKit] editAndForward threw:', e.message));
   } else {
-    msg('forward', extra);
+    msg('forward', extra).catch((e: any) => console.error('[SpyKit] forward threw:', e.message));
   }
 }
 
 export function forwardAllRequests(): void {
-  msg('forwardAll');
+  msg('forwardAll').catch((e: any) => console.error('[SpyKit] forwardAll threw:', e.message));
 }
 
 export function dropRequest(id: number): void {
   const req = _queue.find(r => r.id === id);
   if (!req) return;
-  msg('drop', { requestId: req.requestId });
+  msg('drop', { requestId: req.requestId }).catch((e: any) => console.error('[SpyKit] drop threw:', e.message));
 }
 
 export function dropAllRequests(): void {
-  msg('dropAll');
+  msg('dropAll').catch((e: any) => console.error('[SpyKit] dropAll threw:', e.message));
 }
 
 export function editAndForwardRequest(id: number, url: string, method: string, headers: string, body: string): void {

@@ -58,9 +58,12 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
 function notifyPanel(tabId, event, data) {
   try {
-    chrome.runtime.sendMessage({ spyInterceptorEvent: true, event: event, data: data || {} });
+    var p = chrome.runtime.sendMessage({ spyInterceptorEvent: true, event: event, data: data || {} });
+    if (p && typeof p.catch === 'function') {
+      p.catch(function() {});  // panel might be closed
+    }
   } catch(e) {
-    console.error('[SpyKit] notifyPanel error:', e);
+    // silent
   }
 }
 

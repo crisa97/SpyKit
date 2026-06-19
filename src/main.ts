@@ -29,9 +29,11 @@ const onDataMocks = function(data: CapturedEntry, id: number): number {
   if (data && data.request && data.request.url) {
     for (const mock of mocks) {
       if (data.request.url.indexOf(mock.url) >= 0) {
-        if (!data.response) data.response = { headers: [], content: {} } as any;
-        data.response.status = mock.status;
-        data.response.content = { text: mock.body || '', mimeType: 'application/json' };
+        if (!data.response) data.response = { status: 0, headers: [], content: {} } as any;
+        if (data.response) {
+          data.response.status = mock.status;
+          data.response.content = { text: mock.body || '', mimeType: 'application/json' };
+        }
         break;
       }
     }

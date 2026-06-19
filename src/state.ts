@@ -100,11 +100,11 @@ export function setSplitDir(d: string | undefined) { splitDir = d; }
 export function setSplitRatio(r: number) { splitRatio = r; }
 
 export const SECURITY_HEADERS: { [key: string]: { label: string; check: (v: string) => boolean; desc: string } } = {
-  'strict-transport-security': { label: 'HSTS', check: (v: string) => v && v.indexOf('max-age') >= 0, desc: 'HTTP Strict Transport Security — forces HTTPS connections' },
+  'strict-transport-security': { label: 'HSTS', check: (v: string) => !!v && v.indexOf('max-age') >= 0, desc: 'HTTP Strict Transport Security — forces HTTPS connections' },
   'x-content-type-options': { label: 'XCTO', check: (v: string) => v === 'nosniff', desc: 'Prevents MIME-type sniffing' },
   'x-frame-options': { label: 'XFO', check: (v: string) => v === 'DENY' || v === 'SAMEORIGIN', desc: 'Prevents clickjacking via iframes' },
   'content-security-policy': { label: 'CSP', check: () => true, desc: 'Content Security Policy — controls allowed resources' },
-  'x-xss-protection': { label: 'XSS', check: (v: string) => v && v.indexOf('1') >= 0, desc: 'Cross-site scripting filter' },
+  'x-xss-protection': { label: 'XSS', check: (v: string) => !!v && v.indexOf('1') >= 0, desc: 'Cross-site scripting filter' },
   'referrer-policy': { label: 'RefP', check: () => true, desc: 'Controls referrer header sent with requests' },
   'permissions-policy': { label: 'PermP', check: () => true, desc: 'Controls browser features (camera, mic, etc.)' },
 };

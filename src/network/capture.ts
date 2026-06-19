@@ -172,7 +172,7 @@ export function onData(data: CapturedEntry, id?: number): number {
     }
   }
 
-  const size = data.response ? data.response.bodySize : 0;
+  const size = data.response ? (data.response.bodySize ?? 0) : 0;
   const sizeInt = Math.round(size);
 
   $('.type', tr)

@@ -1,7 +1,8 @@
+import type { Header } from '../types/index';
 import { SECURITY_HEADERS, INFO_DISCLOSURE_HEADERS } from '../state';
 import { escapeHtml } from '../core/utils';
 
-export function checkSecurityHeaders(headers: Array<{ name: string; value: string }> | null): string {
+export function checkSecurityHeaders(headers: Header[] | null): string {
   const found: { [key: string]: string } = {};
   const foundDisclosure: { [key: string]: string } = {};
   if (headers) {

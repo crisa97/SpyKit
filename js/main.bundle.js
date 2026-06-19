@@ -108,11 +108,11 @@
     splitRatio = r;
   }
   const SECURITY_HEADERS = {
-    "strict-transport-security": { label: "HSTS", check: (v) => v && v.indexOf("max-age") >= 0, desc: "HTTP Strict Transport Security — forces HTTPS connections" },
+    "strict-transport-security": { label: "HSTS", check: (v) => !!v && v.indexOf("max-age") >= 0, desc: "HTTP Strict Transport Security — forces HTTPS connections" },
     "x-content-type-options": { label: "XCTO", check: (v) => v === "nosniff", desc: "Prevents MIME-type sniffing" },
     "x-frame-options": { label: "XFO", check: (v) => v === "DENY" || v === "SAMEORIGIN", desc: "Prevents clickjacking via iframes" },
     "content-security-policy": { label: "CSP", check: () => true, desc: "Content Security Policy — controls allowed resources" },
-    "x-xss-protection": { label: "XSS", check: (v) => v && v.indexOf("1") >= 0, desc: "Cross-site scripting filter" },
+    "x-xss-protection": { label: "XSS", check: (v) => !!v && v.indexOf("1") >= 0, desc: "Cross-site scripting filter" },
     "referrer-policy": { label: "RefP", check: () => true, desc: "Controls referrer header sent with requests" },
     "permissions-policy": { label: "PermP", check: () => true, desc: "Controls browser features (camera, mic, etc.)" }
   };
@@ -137,6 +137,15 @@
     "x-varnish": { label: "Varnish", desc: "Reveals Varnish cache details" },
     "x-served-by": { label: "ServedBy", desc: "Reveals server hostname" }
   };
+  const SECRET_PATTERNS = [
+    { name: "API Key", regex: /(['"])?(sk[-_]?live|sk[-_]?test|api[-_]?key|apikey)[=:]\s*['"]?([^&"'\s]{8,})/gi },
+    { name: "JWT", regex: /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },
+    { name: "Bearer Token", regex: /bearer\s+[a-zA-Z0-9._~+/-]{20,}/gi },
+    { name: "AWS Key", regex: /AKIA[0-9A-Z]{16}/g },
+    { name: "GitHub Token", regex: /gh[pousr]_[a-zA-Z0-9]{36,}/g },
+    { name: "Password", regex: /(password|passwd|pwd)[=:]\s*['"]?([^&"'\s]{4,})/gi },
+    { name: "Token", regex: /(['"])?(token|secret|auth)[=:]\s*['"]?([^&"'\s]{8,})/gi }
+  ];
   function escapeHtml$2(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
@@ -554,7 +563,7 @@
         }
       }
     }
-    const size = data.response ? data.response.bodySize : 0;
+    const size = data.response ? data.response.bodySize ?? 0 : 0;
     const sizeInt = Math.round(size);
     $(".type", tr).html(type).addClass(type);
     const _type = hash(type);
@@ -1198,9 +1207,9 @@
       html += '<span style="color:' + algColor + ';font-weight:bold;font-size:12px">' + algIcon + " " + t.alg + "</span>";
       html += "</div>";
       html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Header</summary>';
-      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON$1(JSON.stringify(t.header, null, 2)) + "</pre></details>";
+      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.header, null, 2)) + "</pre></details>";
       html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Payload</summary>';
-      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON$1(JSON.stringify(t.payload, null, 2)) + "</pre></details>";
+      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.payload, null, 2)) + "</pre></details>";
       if (t.issues.length) {
         html += '<div style="margin-top:4px">';
         for (const issue of t.issues) {
@@ -1214,7 +1223,7 @@
     html += "</div>";
     return html;
   }
-  function syntaxHighlightJSON$1(str) {
+  function syntaxHighlightJSON(str) {
     if (!str) return "";
     str = str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     return str.replace(/"((?:[^"\\]|\\.)*)"\s*:/g, '<span style="color:#ffd700">$1</span>:').replace(/"((?:[^"\\]|\\.)*)"/g, '<span style="color:#44cc44">"$1"</span>').replace(/\b(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi, '<span style="color:#7ab7ef">$1</span>').replace(/\b(true|false|null)\b/gi, '<span style="color:#cc44cc">$1</span>');
@@ -1541,6 +1550,18 @@
       html += "<tr><td>" + escapeHtml$2(c.name) + "</td><td>" + escapeHtml$2(c.value.substring(0, 30)) + "</td><td>" + escapeHtml$2(c.domain) + "</td><td>" + h + "</td><td>" + s + "</td><td>" + ss + "</td></tr>";
     }
     return html + "</table>";
+  }
+  function scanForSecrets(text) {
+    if (!text) return [];
+    const found = [];
+    for (const p of SECRET_PATTERNS) {
+      p.regex.lastIndex = 0;
+      let m;
+      while ((m = p.regex.exec(text)) !== null) {
+        found.push({ type: p.name, match: m[0].substring(0, 40) });
+      }
+    }
+    return found;
   }
   function requestToPostmanItem(data) {
     if (!data || !data.request) return null;
@@ -2811,7 +2832,7 @@
     _attached = false;
     _enabled = false;
     _queue = [];
-    msg("detach");
+    msg("detach").catch((e) => console.error("[SpyKit] detach threw:", e.message));
   }
   function toggleIntercept(enable) {
     if (!_attached || enable === _enabled) return;
@@ -2835,19 +2856,19 @@
     if (!req) return;
     const extra = { requestId: req.requestId };
     {
-      msg("forward", extra);
+      msg("forward", extra).catch((e) => console.error("[SpyKit] forward threw:", e.message));
     }
   }
   function forwardAllRequests() {
-    msg("forwardAll");
+    msg("forwardAll").catch((e) => console.error("[SpyKit] forwardAll threw:", e.message));
   }
   function dropRequest(id2) {
     const req = _queue.find((r) => r.id === id2);
     if (!req) return;
-    msg("drop", { requestId: req.requestId });
+    msg("drop", { requestId: req.requestId }).catch((e) => console.error("[SpyKit] drop threw:", e.message));
   }
   function dropAllRequests() {
-    msg("dropAll");
+    msg("dropAll").catch((e) => console.error("[SpyKit] dropAll threw:", e.message));
   }
   function editAndForwardRequest(id2, url2, method2, headers2, body2) {
     const req = _queue.find((r) => r.id === id2);
@@ -3051,9 +3072,10 @@
     if (data.getContent) {
       data.getContent(function(content, encoding) {
         if (mime2.indexOf("image") >= 0) {
-          const img = '<a target="_blank" href="' + data.request.url + '"><img height="100px" src="data:' + data.response.content.mimeType.toLowerCase() + ";" + encoding + "," + content + '"/></a>';
+          const mimeType = data.response?.content?.mimeType || "image/png";
+          const img = '<a target="_blank" href="' + data.request.url + '"><img height="100px" src="data:' + mimeType.toLowerCase() + ";" + encoding + "," + content + '"/></a>';
           $("#form-body2").val("").hide();
-          $("#form-body2-image").html($(img));
+          $("#form-body2-image").empty().append($(img));
           $("#form-label-body2").attr("for", "form-body2-image");
         } else {
           if (!content) {
@@ -3339,6 +3361,27 @@
           $("#scan-results-container").html(scanResultsToHtml(scanResults));
         } else {
           $scanContainer.remove();
+        }
+        const secrets = scanForSecrets(allText);
+        if (secrets.length) {
+          const counts = {};
+          for (const s of secrets) {
+            counts[s.type] = (counts[s.type] || 0) + 1;
+          }
+          let warnHtml = "";
+          for (const type in counts) {
+            warnHtml += '<span class="sec-found">⚠ ' + type + ": " + counts[type] + "</span> ";
+          }
+          $("#secrets-warning").html(warnHtml);
+        } else {
+          $("#secrets-warning").html("");
+        }
+        const mimeCheck = (data.response?.content?.mimeType || "").toLowerCase();
+        const isText = mimeCheck.indexOf("text") >= 0 || mimeCheck.indexOf("json") >= 0 || mimeCheck.indexOf("xml") >= 0 || mimeCheck.indexOf("html") >= 0 || mimeCheck.indexOf("javascript") >= 0;
+        if (mimeCheck && !isText) {
+          $("#body-hex-btn").show();
+        } else {
+          $("#body-hex-btn").hide();
         }
       }, 50);
     };
@@ -4086,7 +4129,7 @@
               updateFilterFixedTop();
             } else {
               $btn.text("⏸ Intercept").prop("disabled", false);
-              if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+              if (chrome.runtime.lastError?.message?.includes("Extension context invalidated")) {
                 alert("[SpyKit] Extension was reloaded.\n\nPlease close and reopen DevTools, then try again.");
               } else {
                 alert(
@@ -4781,9 +4824,11 @@
     if (data && data.request && data.request.url) {
       for (const mock of mocks) {
         if (data.request.url.indexOf(mock.url) >= 0) {
-          if (!data.response) data.response = { headers: [], content: {} };
-          data.response.status = mock.status;
-          data.response.content = { text: mock.body || "", mimeType: "application/json" };
+          if (!data.response) data.response = { status: 0, headers: [], content: {} };
+          if (data.response) {
+            data.response.status = mock.status;
+            data.response.content = { text: mock.body || "", mimeType: "application/json" };
+          }
           break;
         }
       }

@@ -6,7 +6,7 @@ export interface AuthFinding {
   recommendation: string;
 }
 
-export function analyzeAuth(requestHeaders: Array<{ name: string; value: string }>, responseHeaders: Array<{ name: string; value: string }>, url: string): AuthFinding[] {
+export function analyzeAuth(requestHeaders: Array<{ name: string; value: string }> | null, responseHeaders: Array<{ name: string; value: string }> | null, url: string): AuthFinding[] {
   const findings: AuthFinding[] = [];
 
   // Check Authorization header

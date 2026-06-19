@@ -1,7 +1,7 @@
-import type { CORSResult } from '../types/index';
+import type { Header, CORSResult } from '../types/index';
 import { escapeHtml } from '../core/utils';
 
-export function checkCORS(reqHeaders: Array<{ name: string; value: string }> | null, resHeaders: Array<{ name: string; value: string }> | null): CORSResult {
+export function checkCORS(reqHeaders: Header[] | null, resHeaders: Header[] | null): CORSResult {
   let origin = '', acao = '', acac = '', acam = '', acah = '';
   if (reqHeaders) {
     for (const h of reqHeaders) {
