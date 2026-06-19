@@ -4010,7 +4010,7 @@
       }
       $("body").append(renderDecoderDialog());
       const bodyText = $("#form-body2").val();
-      if (bodyText) $("#decoder-input").val(bodyText.substring(0, 1e3));
+      if (bodyText) $("#decoder-input").val(bodyText);
       $("#decoder-close").on("click", function() {
         $("#decoder-dialog").remove();
       });

@@ -1183,9 +1183,9 @@ export function initPanel(): void {
     if (existingDialog.length) { existingDialog.remove(); return; }
     $('body').append(renderDecoderDialog());
 
-    // Auto-fill with selected response body
+    // Auto-fill with selected response body (full)
     const bodyText = $('#form-body2').val() as string;
-    if (bodyText) $('#decoder-input').val(bodyText.substring(0, 1000));
+    if (bodyText) $('#decoder-input').val(bodyText);
 
     $('#decoder-close').on('click', function () { $('#decoder-dialog').remove(); });
     $('#decoder-detect').on('click', function () {
