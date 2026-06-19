@@ -107,6 +107,36 @@
   function setSplitRatio(r) {
     splitRatio = r;
   }
+  const SECURITY_HEADERS = {
+    "strict-transport-security": { label: "HSTS", check: (v) => v && v.indexOf("max-age") >= 0, desc: "HTTP Strict Transport Security — forces HTTPS connections" },
+    "x-content-type-options": { label: "XCTO", check: (v) => v === "nosniff", desc: "Prevents MIME-type sniffing" },
+    "x-frame-options": { label: "XFO", check: (v) => v === "DENY" || v === "SAMEORIGIN", desc: "Prevents clickjacking via iframes" },
+    "content-security-policy": { label: "CSP", check: () => true, desc: "Content Security Policy — controls allowed resources" },
+    "x-xss-protection": { label: "XSS", check: (v) => v && v.indexOf("1") >= 0, desc: "Cross-site scripting filter" },
+    "referrer-policy": { label: "RefP", check: () => true, desc: "Controls referrer header sent with requests" },
+    "permissions-policy": { label: "PermP", check: () => true, desc: "Controls browser features (camera, mic, etc.)" }
+  };
+  const INFO_DISCLOSURE_HEADERS = {
+    "server": { label: "Srv", desc: "Reveals server software and version" },
+    "x-powered-by": { label: "XPB", desc: "Reveals technology stack (ASP.NET, PHP, etc.)" },
+    "x-aspnet-version": { label: "ASPN", desc: "Reveals ASP.NET version" },
+    "x-aspnetmvc-version": { label: "MVC", desc: "Reveals ASP.NET MVC version" },
+    "via": { label: "Via", desc: "Reveals proxy/gateway information" },
+    "x-cache": { label: "Cache", desc: "Reveals caching infrastructure (HIT/MISS)" },
+    "x-backend": { label: "Back", desc: "Reveals backend server details" },
+    "x-forwarded-for": { label: "XFF", desc: "May reveal internal IP addresses" },
+    "x-forwarded-host": { label: "XFH", desc: "May reveal internal hostnames" },
+    "x-forwarded-proto": { label: "XFP", desc: "May reveal protocol information" },
+    "x-request-id": { label: "ReqID", desc: "May reveal request tracing infrastructure" },
+    "x-trace-id": { label: "Trace", desc: "May reveal tracing infrastructure (e.g., AWS X-Ray)" },
+    "x-amzn-requestid": { label: "AWS", desc: "Reveals AWS request tracking" },
+    "x-amz-cf-id": { label: "CF", desc: "Reveals CloudFront distribution" },
+    "x-generator": { label: "Gen", desc: "Reveals CMS/generator information" },
+    "x-drupal-cache": { label: "Drupal", desc: "Reveals Drupal caching" },
+    "x-drupal-dynamic-cache": { label: "DDC", desc: "Reveals Drupal dynamic cache" },
+    "x-varnish": { label: "Varnish", desc: "Reveals Varnish cache details" },
+    "x-served-by": { label: "ServedBy", desc: "Reveals server hostname" }
+  };
   function escapeHtml$2(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
@@ -1413,6 +1443,105 @@
     html += "</div>";
     return html;
   }
+  function checkSecurityHeaders(headers2) {
+    const found = {};
+    const foundDisclosure = {};
+    if (headers2) {
+      for (const h of headers2) {
+        const name = h.name ? h.name.toLowerCase() : "";
+        if (SECURITY_HEADERS[name]) {
+          found[name] = h.value;
+        }
+        if (INFO_DISCLOSURE_HEADERS[name]) {
+          foundDisclosure[name] = h.value;
+        }
+      }
+    }
+    let html = "";
+    for (const key in SECURITY_HEADERS) {
+      const h = SECURITY_HEADERS[key];
+      if (found[key] !== void 0) {
+        const ok = h.check(found[key]);
+        html += '<span class="sec-item ' + (ok ? "sec-ok" : "sec-warn") + '" title="' + h.desc + "\n" + key + ": " + escapeHtml$2(found[key]) + '">' + (ok ? "✓" : "?") + h.label + "</span>";
+      } else {
+        html += '<span class="sec-item sec-missing" title="' + h.desc + "\n" + key + ' is missing">✗' + h.label + "</span>";
+      }
+    }
+    for (const key in INFO_DISCLOSURE_HEADERS) {
+      if (foundDisclosure[key] !== void 0) {
+        const h = INFO_DISCLOSURE_HEADERS[key];
+        html += '<span class="sec-item sec-warn" title="' + h.desc + "\n" + key + ": " + escapeHtml$2(foundDisclosure[key]) + '">⚠ ' + h.label + "</span>";
+      }
+    }
+    return html;
+  }
+  function checkCORS(reqHeaders, resHeaders) {
+    let origin = "", acao = "", acac = "";
+    if (reqHeaders) {
+      for (const h of reqHeaders) {
+        if (h.name && h.name.toLowerCase() === "origin") origin = h.value;
+      }
+    }
+    if (resHeaders) {
+      for (const h of resHeaders) {
+        if (!h.name) continue;
+        const n = h.name.toLowerCase();
+        if (n === "access-control-allow-origin") acao = h.value;
+        else if (n === "access-control-allow-credentials") acac = h.value;
+        else if (n === "access-control-allow-methods") h.value;
+        else if (n === "access-control-allow-headers") h.value;
+      }
+    }
+    if (!origin) return { status: "", html: "" };
+    const issues = [];
+    if (acao === "*") issues.push("ACAO: wildcard");
+    if (acao === "*" && acac === "true") issues.push("CRITICAL: wildcard + credentials");
+    if (!acao) issues.push("Missing ACAO");
+    const cls = issues.length === 0 ? "cors-ok" : issues.length <= 1 ? "cors-warn" : "cors-bad";
+    const icon = issues.length === 0 ? "✓" : "⚠";
+    const title = issues.length ? issues.join("; ") : "CORS OK";
+    return { status: cls, html: '<span class="' + cls + '" title="' + escapeHtml$2(title) + '">' + icon + " CORS</span>", issues };
+  }
+  function parseCookies(headers2) {
+    const cookies = [];
+    if (!headers2) return cookies;
+    for (const h of headers2) {
+      const n = h.name ? h.name.toLowerCase() : "";
+      if (n === "set-cookie") {
+        const parts = h.value.split(";");
+        const c = { name: "", value: "", domain: "", path: "", expires: "", httponly: false, secure: false, samesite: "" };
+        for (let j = 0; j < parts.length; j++) {
+          const p = parts[j].trim();
+          const kv = p.split("=");
+          const key = kv[0].trim().toLowerCase();
+          const val = kv.slice(1).join("=");
+          if (j === 0) {
+            c.name = kv[0].trim();
+            c.value = val;
+          } else if (key === "domain") c.domain = val;
+          else if (key === "path") c.path = val;
+          else if (key === "expires") c.expires = val;
+          else if (key === "max-age") c.expires = "max-age=" + val;
+          else if (key === "httponly") c.httponly = true;
+          else if (key === "secure") c.secure = true;
+          else if (key === "samesite") c.samesite = val.toLowerCase();
+        }
+        cookies.push(c);
+      }
+    }
+    return cookies;
+  }
+  function cookieHtml(cookies) {
+    if (!cookies.length) return "";
+    let html = '<table><tr><th>Name</th><th>Value</th><th>Domain</th><th title="HttpOnly — inaccessible to JavaScript">HttpOnly</th><th title="Secure — only sent over HTTPS">Secure</th><th title="SameSite — controls cross-site behavior">SameSite</th></tr>';
+    for (const c of cookies) {
+      const h = c.httponly ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
+      const s = c.secure ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
+      const ss = c.samesite ? c.samesite === "lax" || c.samesite === "strict" ? '<span class="flag-ok">' + c.samesite + "</span>" : '<span class="flag-info">' + c.samesite + "</span>" : '<span class="flag-missing">&#x2717;</span>';
+      html += "<tr><td>" + escapeHtml$2(c.name) + "</td><td>" + escapeHtml$2(c.value.substring(0, 30)) + "</td><td>" + escapeHtml$2(c.domain) + "</td><td>" + h + "</td><td>" + s + "</td><td>" + ss + "</td></tr>";
+    }
+    return html + "</table>";
+  }
   function requestToPostmanItem(data) {
     if (!data || !data.request) return null;
     const r = data.request;
@@ -2618,19 +2747,24 @@
   }
   function msg(action, extra = {}) {
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        spyInterceptor: true,
-        tabId: _tabId,
-        action,
-        ...extra
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          console.error("[SpyKit] interceptor msg error:", chrome.runtime.lastError.message);
-          resolve({ success: false, error: chrome.runtime.lastError.message });
-          return;
-        }
-        resolve(response || { success: false, error: "No response from service worker" });
-      });
+      try {
+        chrome.runtime.sendMessage({
+          spyInterceptor: true,
+          tabId: _tabId,
+          action,
+          ...extra
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("[SpyKit] interceptor msg error:", chrome.runtime.lastError.message);
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(response || { success: false, error: "No response from service worker" });
+        });
+      } catch (e) {
+        console.error("[SpyKit] interceptor sendMessage threw:", e.message);
+        resolve({ success: false, error: e.message });
+      }
     });
   }
   function registerListener() {
@@ -2667,6 +2801,9 @@
         console.error("[SpyKit] attachInterceptor failed:", res.error);
       }
       if (callback) callback(!!res.success);
+    }).catch((e) => {
+      console.error("[SpyKit] attachInterceptor threw:", e.message);
+      if (callback) callback(false);
     });
   }
   function detachInterceptor() {
@@ -2682,10 +2819,14 @@
     if (enable) {
       msg("enableIntercept").then((res) => {
         if (!res.success) _enabled = false;
+      }).catch(() => {
+        _enabled = false;
       });
     } else {
       msg("disableIntercept").then((res) => {
         if (!res.success) _enabled = true;
+      }).catch(() => {
+        _enabled = true;
       });
     }
   }
@@ -2724,6 +2865,66 @@
       method: method2,
       headers: parsedHeaders,
       postData: body2 || void 0
+    });
+  }
+  let _reqCounter = 0;
+  const _pending = /* @__PURE__ */ new Map();
+  let _listenerInit = false;
+  function initListener() {
+    if (_listenerInit) return;
+    _listenerInit = true;
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message && message._fetchId) {
+        const handler = _pending.get(message._fetchId);
+        if (handler) {
+          _pending.delete(message._fetchId);
+          if (message._res === "ok") {
+            handler.resolve(message);
+          } else {
+            handler.reject(new Error(message._err || "Request failed"));
+          }
+        }
+      }
+    });
+  }
+  function pageFetch(url2, method2, headers2, body2, timeout = 3e4) {
+    initListener();
+    const id2 = "pf_" + ++_reqCounter + "_" + Date.now();
+    return new Promise((resolve, reject) => {
+      _pending.set(id2, { resolve, reject });
+      const code2 = [
+        "(async function(){",
+        "try{",
+        "var r=await fetch(" + JSON.stringify(url2) + ",{",
+        "method:" + JSON.stringify(method2) + ",",
+        "headers:" + JSON.stringify(headers2 || {}) + ",",
+        "body:" + (body2 ? JSON.stringify(body2) : "undefined"),
+        "});",
+        "var t=await r.text();",
+        "var h=[];",
+        "r.headers.forEach(function(v,k){h.push({name:k,value:v});});",
+        "chrome.runtime.sendMessage({_fetchId:" + JSON.stringify(id2) + ',_res:"ok",status:r.status,headers:h,body:t,url:r.url});',
+        "}catch(e){",
+        "chrome.runtime.sendMessage({_fetchId:" + JSON.stringify(id2) + ',_res:"fail",_err:String(e.message),url:""});',
+        "}",
+        "})()"
+      ].join("");
+      chrome.devtools.inspectedWindow.eval(
+        code2,
+        { useContentScriptContext: contentScriptLoaded },
+        (result, error) => {
+          if (error && error.isError) {
+            _pending.delete(id2);
+            reject(new Error(error.message));
+          }
+        }
+      );
+      setTimeout(() => {
+        if (_pending.has(id2)) {
+          _pending.delete(id2);
+          reject(new Error("Request timed out"));
+        }
+      }, timeout);
     });
   }
   let filterHtmlAdded = false;
@@ -3080,6 +3281,19 @@
         if (!data) return;
         const body2 = data.response?.content?.text || "";
         const allText = getRequestText(data) + " " + body2;
+        const resHeaders = data.response?.headers || [];
+        const reqHeaders = data.request?.headers || null;
+        $("#security-summary").html(checkSecurityHeaders(resHeaders));
+        const corsResult = checkCORS(reqHeaders, resHeaders);
+        if (corsResult.status) {
+          $("#cors-summary").html(corsResult.html).addClass(corsResult.status);
+        }
+        const cookies = parseCookies(resHeaders);
+        if (cookies.length) {
+          $("#cookie-inspector").html(cookieHtml(cookies)).show();
+        } else {
+          $("#cookie-inspector").hide();
+        }
         if (detectGraphQL(body2)) {
           const $label = $("#form-label-body2");
           if (!$label.find(".gql-badge").length) {
@@ -3427,22 +3641,17 @@
         }
         const startTime = performance.now();
         try {
-          const response = await fetch(targetUrl, {
-            method: method2,
-            headers: headers2 ? { "Content-Type": "application/json" } : void 0,
-            body: method2 !== "GET" ? targetBody : void 0
-          });
-          const text = await response.text();
+          const result = await pageFetch(targetUrl, method2, headers2 ? { "Content-Type": "application/json" } : void 0, method2 !== "GET" ? targetBody : void 0);
           const elapsed = Math.round(performance.now() - startTime);
           results.push({
             method: method2,
             url: targetUrl,
             parameter: field,
             payload,
-            status: response.status,
-            bodySize: text.length,
+            status: result.status,
+            bodySize: result.body.length,
             responseTime: elapsed,
-            diff: text.length
+            diff: result.body.length
           });
         } catch {
           results.push({
@@ -3611,18 +3820,17 @@
         }
         const startTime = performance.now();
         try {
-          const response = await fetch(targetUrl, { method: method2, headers: headers2 ? { "Content-Type": "application/json" } : void 0, body: method2 !== "GET" ? targetBody : void 0 });
-          const text = await response.text();
+          const result = await pageFetch(targetUrl, method2, headers2 ? { "Content-Type": "application/json" } : void 0, method2 !== "GET" ? targetBody : void 0);
           const elapsed = Math.round(performance.now() - startTime);
           results.push({
             method: method2,
             url: targetUrl,
             parameter: param,
             payload,
-            status: response.status,
-            bodySize: text.length,
+            status: result.status,
+            bodySize: result.body.length,
             responseTime: elapsed,
-            diff: text.length
+            diff: result.body.length
           });
         } catch {
           results.push({
@@ -3709,14 +3917,9 @@
       for (let i = 0; i < count; i++) {
         const startTime = performance.now();
         try {
-          const response = await fetch(url2, {
-            method: method2,
-            headers: headers2 ? { "Content-Type": "application/json" } : void 0,
-            body: method2 !== "GET" ? body2 : void 0
-          });
-          const text = await response.text();
+          const result = await pageFetch(url2, method2, headers2 ? { "Content-Type": "application/json" } : void 0, method2 !== "GET" ? body2 : void 0);
           const elapsed = Math.round(performance.now() - startTime);
-          results.push({ index: i, status: response.status, bodySize: text.length, time: elapsed, bodyPreview: text.substring(0, 100), url: url2, method: method2 });
+          results.push({ index: i, status: result.status, bodySize: result.body.length, time: elapsed, bodyPreview: result.body.substring(0, 100), url: url2, method: method2 });
         } catch {
           results.push({ index: i, status: 0, bodySize: 0, time: 0, bodyPreview: "Error", url: url2, method: method2 });
         }

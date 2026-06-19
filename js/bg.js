@@ -218,6 +218,12 @@ function handleInterceptorCommand(request, sendResponse) {
         requestId: req.requestId
       }, function() {
         if (chrome.runtime.lastError) {
+          if (chrome.runtime.lastError.message.indexOf('Cannot attach') >= 0) {
+            console.warn('[SpyKit] Forward: debugger detached, request auto-continued:', req.url);
+            notifyRequestProcessed(tabId, req, 'forwarded');
+            sendResponse({ success: true });
+            return;
+          }
           console.error('[SpyKit] Forward failed:', chrome.runtime.lastError.message);
           notifyRequestProcessed(tabId, req, 'error');
           sendResponse({ success: false, error: chrome.runtime.lastError.message });
@@ -250,6 +256,14 @@ function handleInterceptorCommand(request, sendResponse) {
             if (chrome.runtime.lastError.message.indexOf('Invalid InterceptionId') >= 0) {
               console.warn('[SpyKit] Forward All: request already continued by Chrome:', req.url);
               notifyRequestProcessed(tabId, req, 'forwarded');
+            } else if (chrome.runtime.lastError.message.indexOf('Cannot attach') >= 0) {
+              console.warn('[SpyKit] Forward All: debugger detached, marking remaining as forwarded');
+              notifyRequestProcessed(tabId, req, 'forwarded');
+              while (fi < pending.length) {
+                notifyRequestProcessed(tabId, pending[fi++], 'forwarded');
+              }
+              sendResponse({ success: true });
+              return;
             } else {
               console.error('[SpyKit] Forward All failed:', chrome.runtime.lastError.message);
               notifyRequestProcessed(tabId, req, 'error');
@@ -275,6 +289,12 @@ function handleInterceptorCommand(request, sendResponse) {
         requestId: req.requestId, errorReason: 'BlockedByClient'
       }, function() {
         if (chrome.runtime.lastError) {
+          if (chrome.runtime.lastError.message.indexOf('Cannot attach') >= 0) {
+            console.warn('[SpyKit] Drop: debugger detached, request auto-continued:', req.url);
+            notifyRequestProcessed(tabId, req, 'forwarded');
+            sendResponse({ success: true });
+            return;
+          }
           console.error('[SpyKit] Drop failed:', chrome.runtime.lastError.message);
           notifyRequestProcessed(tabId, req, 'error');
           sendResponse({ success: false, error: chrome.runtime.lastError.message });
@@ -303,6 +323,15 @@ function handleInterceptorCommand(request, sendResponse) {
         chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.failRequest', {
           requestId: req.requestId, errorReason: 'BlockedByClient'
         }, function() {
+          if (chrome.runtime.lastError && chrome.runtime.lastError.message.indexOf('Cannot attach') >= 0) {
+            console.warn('[SpyKit] Drop All: debugger detached, marking remaining as forwarded');
+            notifyRequestProcessed(tabId, req, 'forwarded');
+            while (di < pending.length) {
+              notifyRequestProcessed(tabId, pending[di++], 'forwarded');
+            }
+            sendResponse({ success: true });
+            return;
+          }
           chrome.runtime.lastError;
           notifyRequestProcessed(tabId, req, 'dropped');
           setTimeout(dropNext, 50);
@@ -328,6 +357,12 @@ function handleInterceptorCommand(request, sendResponse) {
       }
       chrome.debugger.sendCommand({ tabId: tabId }, 'Fetch.continueRequest', p, function() {
         if (chrome.runtime.lastError) {
+          if (chrome.runtime.lastError.message.indexOf('Cannot attach') >= 0) {
+            console.warn('[SpyKit] Edit & Forward: debugger detached, request auto-continued:', req.url);
+            notifyRequestProcessed(tabId, req, 'forwarded');
+            sendResponse({ success: true });
+            return;
+          }
           console.error('[SpyKit] Edit & Forward failed:', chrome.runtime.lastError.message);
           notifyRequestProcessed(tabId, req, 'error');
           sendResponse({ success: false, error: chrome.runtime.lastError.message });

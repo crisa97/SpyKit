@@ -109,6 +109,28 @@ export const SECURITY_HEADERS: { [key: string]: { label: string; check: (v: stri
   'permissions-policy': { label: 'PermP', check: () => true, desc: 'Controls browser features (camera, mic, etc.)' },
 };
 
+export const INFO_DISCLOSURE_HEADERS: { [key: string]: { label: string; desc: string } } = {
+  'server': { label: 'Srv', desc: 'Reveals server software and version' },
+  'x-powered-by': { label: 'XPB', desc: 'Reveals technology stack (ASP.NET, PHP, etc.)' },
+  'x-aspnet-version': { label: 'ASPN', desc: 'Reveals ASP.NET version' },
+  'x-aspnetmvc-version': { label: 'MVC', desc: 'Reveals ASP.NET MVC version' },
+  'via': { label: 'Via', desc: 'Reveals proxy/gateway information' },
+  'x-cache': { label: 'Cache', desc: 'Reveals caching infrastructure (HIT/MISS)' },
+  'x-backend': { label: 'Back', desc: 'Reveals backend server details' },
+  'x-forwarded-for': { label: 'XFF', desc: 'May reveal internal IP addresses' },
+  'x-forwarded-host': { label: 'XFH', desc: 'May reveal internal hostnames' },
+  'x-forwarded-proto': { label: 'XFP', desc: 'May reveal protocol information' },
+  'x-request-id': { label: 'ReqID', desc: 'May reveal request tracing infrastructure' },
+  'x-trace-id': { label: 'Trace', desc: 'May reveal tracing infrastructure (e.g., AWS X-Ray)' },
+  'x-amzn-requestid': { label: 'AWS', desc: 'Reveals AWS request tracking' },
+  'x-amz-cf-id': { label: 'CF', desc: 'Reveals CloudFront distribution' },
+  'x-generator': { label: 'Gen', desc: 'Reveals CMS/generator information' },
+  'x-drupal-cache': { label: 'Drupal', desc: 'Reveals Drupal caching' },
+  'x-drupal-dynamic-cache': { label: 'DDC', desc: 'Reveals Drupal dynamic cache' },
+  'x-varnish': { label: 'Varnish', desc: 'Reveals Varnish cache details' },
+  'x-served-by': { label: 'ServedBy', desc: 'Reveals server hostname' },
+};
+
 export const SECRET_PATTERNS = [
   { name: 'API Key', regex: /(['"])?(sk[-_]?live|sk[-_]?test|api[-_]?key|apikey)[=:]\s*['"]?([^&"'\s]{8,})/gi },
   { name: 'JWT', regex: /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g },

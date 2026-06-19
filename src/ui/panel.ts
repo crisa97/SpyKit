@@ -14,6 +14,9 @@ import { detectGraphQL } from '../security/graphql';
 import { findJWTInText, jwtToHtml } from '../security/jwt';
 import { analyzeAuth, authFindingsToHtml } from '../security/auth';
 import { scanForReflections, scanResultsToHtml } from '../security/scanner';
+import { checkSecurityHeaders } from '../security/headers';
+import { checkCORS } from '../security/cors';
+import { parseCookies, cookieHtml } from '../security/cookies';
 import { genSnippets } from '../rest/export';
 import { exportAsFormat, exportAsCSV, exportAsHAR } from '../rest/export';
 import { requestToPostmanItem } from '../rest/postman';
@@ -27,6 +30,7 @@ import {
   setOnQueueChange, setOnRequestProcessed, editAndForwardRequest, attachInterceptor,
 } from '../interceptor/intercept';
 import type { InterceptedRequest, CapturedEntry } from '../types/index';
+import { pageFetch } from '../rest/page-fetch';
 
 declare const autosize: any;
 
@@ -436,6 +440,21 @@ export function initPanel(): void {
       const body = (data.response?.content?.text) || '';
       const allText = getRequestText(data) + ' ' + body;
 
+      // Security header badges + CORS + Cookies
+      const resHeaders = data.response?.headers || [];
+      const reqHeaders = data.request?.headers || null;
+      $('#security-summary').html(checkSecurityHeaders(resHeaders));
+      const corsResult = checkCORS(reqHeaders, resHeaders);
+      if (corsResult.status) {
+        $('#cors-summary').html(corsResult.html).addClass(corsResult.status);
+      }
+      const cookies = parseCookies(resHeaders);
+      if (cookies.length) {
+        $('#cookie-inspector').html(cookieHtml(cookies)).show();
+      } else {
+        $('#cookie-inspector').hide();
+      }
+
       // GraphQL badge
       if (detectGraphQL(body)) {
         const $label = $('#form-label-body2');
@@ -821,19 +840,14 @@ export function initPanel(): void {
 
       const startTime = performance.now();
       try {
-        const response = await fetch(targetUrl, {
-          method,
-          headers: headers ? { 'Content-Type': 'application/json' } : undefined,
-          body: method !== 'GET' ? targetBody : undefined,
-        });
-        const text = await response.text();
+        const result = await pageFetch(targetUrl, method, headers ? { 'Content-Type': 'application/json' } : undefined, method !== 'GET' ? targetBody : undefined);
         const elapsed = Math.round(performance.now() - startTime);
         results.push({
           method, url: targetUrl, parameter: field, payload,
-          status: response.status,
-          bodySize: text.length,
+          status: result.status,
+          bodySize: result.body.length,
           responseTime: elapsed,
-          diff: text.length,
+          diff: result.body.length,
         });
       } catch {
         results.push({
@@ -999,16 +1013,15 @@ export function initPanel(): void {
 
       const startTime = performance.now();
       try {
-        const response = await fetch(targetUrl, { method, headers: headers ? { 'Content-Type': 'application/json' } : undefined, body: method !== 'GET' ? targetBody : undefined });
-        const text = await response.text();
+        const result = await pageFetch(targetUrl, method, headers ? { 'Content-Type': 'application/json' } : undefined, method !== 'GET' ? targetBody : undefined);
         const elapsed = Math.round(performance.now() - startTime);
 
         results.push({
           method, url: targetUrl, parameter: param, payload,
-          status: response.status,
-          bodySize: text.length,
+          status: result.status,
+          bodySize: result.body.length,
           responseTime: elapsed,
-          diff: text.length,
+          diff: result.body.length,
         });
       } catch {
         results.push({
@@ -1091,14 +1104,9 @@ export function initPanel(): void {
     for (let i = 0; i < count; i++) {
       const startTime = performance.now();
       try {
-        const response = await fetch(url, {
-          method,
-          headers: headers ? { 'Content-Type': 'application/json' } : undefined,
-          body: method !== 'GET' ? body : undefined,
-        });
-        const text = await response.text();
+        const result = await pageFetch(url, method, headers ? { 'Content-Type': 'application/json' } : undefined, method !== 'GET' ? body : undefined);
         const elapsed = Math.round(performance.now() - startTime);
-        results.push({ index: i, status: response.status, bodySize: text.length, time: elapsed, bodyPreview: text.substring(0, 100), url, method });
+        results.push({ index: i, status: result.status, bodySize: result.body.length, time: elapsed, bodyPreview: result.body.substring(0, 100), url, method });
       } catch {
         results.push({ index: i, status: 0, bodySize: 0, time: 0, bodyPreview: 'Error', url, method });
       }

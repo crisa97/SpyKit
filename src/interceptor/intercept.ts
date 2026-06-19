@@ -30,19 +30,24 @@ export function isInterceptorAttached(): boolean {
 
 function msg(action: string, extra: Record<string, unknown> = {}): Promise<{ success: boolean; error?: string }> {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage({
-      spyInterceptor: true,
-      tabId: _tabId,
-      action,
-      ...extra,
-    }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.error('[SpyKit] interceptor msg error:', chrome.runtime.lastError.message);
-        resolve({ success: false, error: chrome.runtime.lastError.message });
-        return;
-      }
-      resolve(response || { success: false, error: 'No response from service worker' });
-    });
+    try {
+      chrome.runtime.sendMessage({
+        spyInterceptor: true,
+        tabId: _tabId,
+        action,
+        ...extra,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('[SpyKit] interceptor msg error:', chrome.runtime.lastError.message);
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        resolve(response || { success: false, error: 'No response from service worker' });
+      });
+    } catch (e: any) {
+      console.error('[SpyKit] interceptor sendMessage threw:', e.message);
+      resolve({ success: false, error: e.message });
+    }
   });
 }
 
@@ -81,6 +86,9 @@ export function attachInterceptor(tab: number, callback?: (success: boolean) => 
       console.error('[SpyKit] attachInterceptor failed:', res.error);
     }
     if (callback) callback(!!res.success);
+  }).catch((e: any) => {
+    console.error('[SpyKit] attachInterceptor threw:', e.message);
+    if (callback) callback(false);
   });
 }
 
@@ -98,11 +106,11 @@ export function toggleIntercept(enable: boolean): void {
   if (enable) {
     msg('enableIntercept').then((res) => {
       if (!res.success) _enabled = false;
-    });
+    }).catch(() => { _enabled = false; });
   } else {
     msg('disableIntercept').then((res) => {
       if (!res.success) _enabled = true;
-    });
+    }).catch(() => { _enabled = true; });
   }
 }
 
