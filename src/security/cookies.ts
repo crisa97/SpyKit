@@ -1,6 +1,6 @@
 import { escapeHtml } from '../core/utils';
 
-interface ParsedCookie {
+export interface ParsedCookie {
   name: string;
   value: string;
   domain: string;

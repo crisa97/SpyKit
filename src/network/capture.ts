@@ -1,39 +1,13 @@
 import { values, rows, ROW_HEIGHT, rootId, setRootId } from '../state';
 import type { CapturedEntry } from '../types/index';
-import { parseUrl, hash, formatSize, getRedColor, stripTrailingSlash } from '../core/utils';
+import { parseUrl, hash, formatSize, getRedColor, stripTrailingSlash, getRequestText } from '../core/utils';
 import { addFilterItem } from '../ui/filters';
+import { collectFindings } from '../security/findings';
 
 let _onDataCallback: ((data: CapturedEntry, id: number) => number) | null = null;
 
 export function setOnDataCallback(cb: (data: CapturedEntry, id: number) => number): void {
   _onDataCallback = cb;
-}
-
-export function getRequestText(data: CapturedEntry): string {
-  let text = '';
-  if (!data) return text;
-  text += (data.request && data.request.method) || '';
-  text += (data.request && data.request.url) || '';
-  text += (data.response && data.response.status) || '';
-  if (data.request && data.request.headers) {
-    for (const h of data.request.headers) {
-      text += (h.name || '') + (h.value || '');
-    }
-  }
-  if (data.request && data.request.postData) {
-    const pd = data.request.postData;
-    text += (typeof pd === 'string' ? pd : pd.text || '') + '';
-  }
-  if (data.response && data.response.headers) {
-    for (const h of data.response.headers) {
-      text += (h.name || '') + (h.value || '');
-    }
-  }
-  if (data.response && data.response.content) {
-    const ct = data.response.content;
-    text += (ct.text || JSON.stringify(ct) || '');
-  }
-  return text.toLowerCase();
 }
 
 export function applyFilters(): void {
@@ -144,6 +118,15 @@ export function onData(data: CapturedEntry, id?: number): number {
 
   $('.clear', tr).html('&nbsp;');
   $('.pin', tr).html('<span class="pin-star">☆</span>');
+
+  // Show findings icon only if findings exist
+  const findings = collectFindings(data);
+  if (findings.length) {
+    $('.findings', tr).html('<span class="findings-icon" title="Tiene hallazgos">🔍</span>');
+  } else {
+    $('.findings', tr).html('&nbsp;');
+  }
+
   $('.url', tr).html(_url);
 
   const _domain = hash(url.hostname);

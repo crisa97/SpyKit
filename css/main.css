@@ -1809,6 +1809,28 @@ body.light #auth-analysis-container > div { background:#f5f0e8 !important; borde
 #scan-results-container { margin-top:4px; }
 body.light #scan-results-container > div { background:#f5e8e8 !important; border-color:#cc4444 !important; }
 
+/* ── Findings Column ── */
+.req > td.findings { width:26px; min-width:26px; max-width:26px; text-align:center; padding:0; }
+.findings-icon { font-size:13px; cursor:pointer; display:inline-block; line-height:24px; opacity:0.5; transition:opacity .15s; }
+.findings-icon:hover { opacity:1; }
+.filter-findings { width:26px; min-width:26px; }
+
+/* ── Findings Dialog ── */
+#findings-dialog, #findings-global-dialog { z-index:10000; }
+#findings-dialog .findings-body, #findings-global-dialog .findings-body { font-size:12px; }
+#findings-dialog .finding-group, #findings-global-dialog .finding-group { margin-top:8px; }
+#findings-dialog .finding-group:first-child, #findings-global-dialog .finding-group:first-child { margin-top:0; }
+#findings-dialog .finding-group-label, #findings-global-dialog .finding-group-label { font-weight:bold; font-size:12px; margin-bottom:4px; display:flex; align-items:center; gap:4px; }
+#findings-dialog .finding-group-count, #findings-global-dialog .finding-group-count { font-size:11px; opacity:0.7; }
+#findings-dialog .finding-item, #findings-global-dialog .finding-item { padding:4px 6px; margin:2px 0; background:rgba(255,255,255,0.03); border-radius:3px; border-left:3px solid currentColor; }
+#findings-dialog .finding-title, #findings-global-dialog .finding-title { font-weight:bold; font-size:11px; }
+#findings-dialog .finding-detail, #findings-global-dialog .finding-detail { font-size:10px; color:#999; margin-top:1px; word-break:break-all; }
+#findings-dialog .finding-location, #findings-global-dialog .finding-location { font-size:10px; color:#777; margin-top:1px; font-style:italic; }
+body.light #findings-dialog, body.light #findings-global-dialog { background:#fafafa !important; border-color:#ccc !important; }
+body.light #findings-dialog .finding-item, body.light #findings-global-dialog .finding-item { background:rgba(0,0,0,0.02); }
+body.light #findings-dialog .finding-detail, body.light #findings-global-dialog .finding-detail { color:#666; }
+body.light #findings-dialog .finding-location, body.light #findings-global-dialog .finding-location { color:#888; }
+
 /* ── Decoders Panel ── */
 .decoders-panel { margin-top:6px; }
 #decoder-dialog textarea { background:#0f0f23; border:1px solid #444; color:#e0e0e0; }

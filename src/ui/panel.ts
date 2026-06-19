@@ -1,8 +1,8 @@
 import { values, rows, ROW_HEIGHT, selected, dialogOpened, largeContent, largeContentEncoding, formDirty,
          setDialogOpened, setSelected, setLargeContent, setContentScriptLoaded, setFormDirty,
          rootId, mocks, splitter, splitDir, setRateLimitDelay, rateLimitDelay } from '../state';
-import { format, headersToStr, getStatusHint, toCurl, downloadJSON, copyToClipboard } from '../core/utils';
-import { onData, applyFilters, applyPagination, doSearch, getRequestText } from '../network/capture';
+import { format, headersToStr, getStatusHint, toCurl, downloadJSON, copyToClipboard, getRequestText } from '../core/utils';
+import { onData, applyFilters, applyPagination, doSearch } from '../network/capture';
 import { loadPersistedData, startAutoSave, saveBookmark, addBlockedDomain } from '../core/storage';
 import { splitCheck, detailsSizeCheck } from './splitter';
 import { addFilterItem } from './filters';
@@ -17,6 +17,7 @@ import { checkSecurityHeaders } from '../security/headers';
 import { checkCORS } from '../security/cors';
 import { parseCookies, cookieHtml } from '../security/cookies';
 import { scanForSecrets } from '../security/secrets';
+import { renderFindingsDialog, renderGlobalFindingsDialog, exportGlobalFindingsCsv } from '../rest/findings-dialog';
 import { genSnippets } from '../rest/export';
 import { exportAsFormat, exportAsCSV, exportAsHAR } from '../rest/export';
 import { requestToPostmanItem } from '../rest/postman';
@@ -417,14 +418,21 @@ export function initPanel(): void {
   } catch { /* ignore */ }
 
   // ── Network capture ──
+  function isInternalUrl(url: string): boolean {
+    if (!url) return true;
+    return url.startsWith('chrome-extension://') || url.startsWith('chrome://') || url.startsWith('edge://') || url.startsWith('about:');
+  }
+
   try {
     if (chrome.devtools) {
       chrome.devtools.network.getHAR(function (log: any) {
         for (const entry of log.entries) {
+          if (isInternalUrl(entry.request?.url)) continue;
           onData(entry);
         }
       });
       chrome.devtools.network.onRequestFinished.addListener(function (entry: any) {
+        if (isInternalUrl(entry.request?.url)) return;
         onData(entry);
       });
     }
@@ -529,6 +537,7 @@ export function initPanel(): void {
     } else {
       $('#body-hex-btn').hide();
     }
+
   }
 
   const origEditReq = editRequest;
@@ -679,6 +688,27 @@ export function initPanel(): void {
     if (id) saveBookmark(id, $row.hasClass('pinned'));
   });
 
+  // ── Findings per-request (toolbar) ──
+  $(document).on('click', '#findings-btn', function () {
+    const id = parseInt($('#form-id').val() as string);
+    const data = (id > 0) ? values.requests[id] : null;
+    if (!data) { alert('Select a request first'); return; }
+    const existing = $('#findings-dialog');
+    if (existing.length) { existing.remove(); return; }
+    $('body').append(renderFindingsDialog(data));
+    $('#findings-close').on('click', function () { $('#findings-dialog').remove(); });
+  });
+
+  // ── Findings global (search bar) ──
+  $(document).on('click', '#findings-global-btn', function () {
+    $('#findings-global-dialog').remove();
+    $('body').append(renderGlobalFindingsDialog());
+    $('#findings-global-close').on('click', function () { $('#findings-global-dialog').remove(); });
+  });
+  $(document).on('click', '#findings-global-export', function () {
+    exportGlobalFindingsCsv();
+  });
+
   // ── Collection select toggle ──
   $(document).on('click', '.req .clear', function (this: HTMLElement) {
     const $row = $(this).closest('.req');
@@ -729,6 +759,7 @@ export function initPanel(): void {
   });
 
   // ── Viewport bar ──
+  $('.search-bar-top').prepend('<button id="findings-global-btn" class="btn btn-xs btn-default" type="button" title="Hallazgos globales en todos los requests" style="margin-right:4px">\uD83D\uDD0D Global</button>');
   const $viewportBar = $('<div id="viewport-bar"><button data-width="375">Mobile</button><button data-width="768">Tablet</button><button data-width="1024">Desktop</button><button data-width="0">Reset</button><span id="rate-badge" class="rate-badge" style="display:none">\u221E</span></div>');
   $('.search-bar-top').after($viewportBar);
   $viewportBar.hide();
@@ -738,6 +769,7 @@ export function initPanel(): void {
   $('.url-actions').append('<button id="fuzzer-btn" class="btn btn-xs btn-default" type="button" title="Fuzz parameters">\u26A1 Fuzz</button>');
   $('.url-actions').append('<button id="repeater-btn" class="btn btn-xs btn-default" type="button" title="Repeater">\uD83D\uDD04 Repeat</button>');
   $('.url-actions').append('<button id="decoder-btn" class="btn btn-xs btn-default" type="button" title="Inline decoders">\uD83D\uDD0D Decode</button>');
+  $('.url-actions').append('<button id="findings-btn" class="btn btn-xs btn-default" type="button" title="Hallazgos del request actual">\uD83D\uDD0D Hallazgos</button>');
 
   // ── Intruder ──
   $(document).on('click', '#intruder-btn', function () {

@@ -3,6 +3,7 @@ import type { CapturedEntry, Envs, HistoryEntry, MockRule, BodySearchMatch, RowS
 export const rows: RowSpec = {
   clear: '×',
   pin: '☆',
+  findings: '🔍',
   method: ['Method'],
   time: ['&nbsp; &nbsp; Time'],
   size: ['&nbsp; &nbsp; Size'],

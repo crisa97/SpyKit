@@ -1,3 +1,5 @@
+import type { CapturedEntry } from '../types/index';
+
 export function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -243,4 +245,31 @@ export function format(s: unknown, mime?: string): string {
     .replace(/\\t/g, '\t')
     .replace(/\\b/g, '\b')
     .replace(/\\f/g, '\f');
+}
+
+export function getRequestText(data: CapturedEntry): string {
+  let text = '';
+  if (!data) return text;
+  text += (data.request && data.request.method) || '';
+  text += (data.request && data.request.url) || '';
+  text += (data.response && data.response.status) || '';
+  if (data.request && data.request.headers) {
+    for (const h of data.request.headers) {
+      text += (h.name || '') + (h.value || '');
+    }
+  }
+  if (data.request && data.request.postData) {
+    const pd = data.request.postData;
+    text += (typeof pd === 'string' ? pd : pd.text || '') + '';
+  }
+  if (data.response && data.response.headers) {
+    for (const h of data.response.headers) {
+      text += (h.name || '') + (h.value || '');
+    }
+  }
+  if (data.response && data.response.content) {
+    const ct = data.response.content;
+    text += (ct.text || JSON.stringify(ct) || '');
+  }
+  return text.toLowerCase();
 }

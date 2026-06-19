@@ -3,6 +3,7 @@
   const rows = {
     clear: "×",
     pin: "☆",
+    findings: "🔍",
     method: ["Method"],
     time: ["&nbsp; &nbsp; Time"],
     size: ["&nbsp; &nbsp; Size"],
@@ -376,6 +377,32 @@
     }
     return text.replace(/\\n/g, "\n").replace(/\\'/g, "'").replace(/\\\//g, "/").replace(/\\"/g, '"').replace(/\\&/g, "&").replace(/\\r/g, "\r").replace(/\\t/g, "	").replace(/\\b/g, "\b").replace(/\\f/g, "\f");
   }
+  function getRequestText(data) {
+    let text = "";
+    if (!data) return text;
+    text += data.request && data.request.method || "";
+    text += data.request && data.request.url || "";
+    text += data.response && data.response.status || "";
+    if (data.request && data.request.headers) {
+      for (const h of data.request.headers) {
+        text += (h.name || "") + (h.value || "");
+      }
+    }
+    if (data.request && data.request.postData) {
+      const pd = data.request.postData;
+      text += (typeof pd === "string" ? pd : pd.text || "") + "";
+    }
+    if (data.response && data.response.headers) {
+      for (const h of data.response.headers) {
+        text += (h.name || "") + (h.value || "");
+      }
+    }
+    if (data.response && data.response.content) {
+      const ct = data.response.content;
+      text += ct.text || JSON.stringify(ct) || "";
+    }
+    return text.toLowerCase();
+  }
   function addFilterItem(filter, id2, str) {
     const f = $(".filter-" + filter + ":last");
     const ul = $("ul", f);
@@ -405,35 +432,543 @@
       badge.html(String(i + 1));
     }
   }
+  function scanForSecrets(text) {
+    if (!text) return [];
+    const found = [];
+    for (const p of SECRET_PATTERNS) {
+      p.regex.lastIndex = 0;
+      let m;
+      while ((m = p.regex.exec(text)) !== null) {
+        found.push({ type: p.name, match: m[0].substring(0, 40) });
+      }
+    }
+    return found;
+  }
+  function decodeJWT(token) {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    try {
+      const header = JSON.parse(atob(parts[0]));
+      const payload = JSON.parse(atob(parts[1]));
+      const signature = parts[2];
+      const issues = [];
+      const alg = header.alg || "unknown";
+      if (alg === "none") issues.push('CRITICAL: Algorithm is "none" — token can be forged');
+      if (alg === "HS256" || alg === "HS384" || alg === "HS512") issues.push("Symmetric algorithm (" + alg + ") — verify secret strength");
+      if (!alg || alg === "") issues.push("Missing algorithm");
+      const now = Math.floor(Date.now() / 1e3);
+      if (payload.exp && payload.exp < now) issues.push("Token EXPIRED (exp: " + new Date(payload.exp * 1e3).toISOString() + ")");
+      if (payload.nbf && payload.nbf > now) issues.push("Token not yet valid (nbf: " + new Date(payload.nbf * 1e3).toISOString() + ")");
+      return { raw: token, header, payload, signature, alg, valid: issues.length === 0, issues };
+    } catch {
+      return null;
+    }
+  }
+  function findJWTInText(text) {
+    if (!text) return [];
+    const pattern = /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g;
+    const tokens = [];
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const decoded = decodeJWT(match[0]);
+      if (decoded) tokens.push(decoded);
+    }
+    return tokens;
+  }
+  function jwtToHtml(tokens) {
+    if (!tokens.length) return "";
+    let html = '<div class="jwt-inspector" style="margin-top:8px;padding:6px;background:#1a1a2e;border:1px solid #333;border-radius:4px">';
+    html += '<div style="font-weight:bold;color:#ffd700;margin-bottom:4px">🔒 JWT Tokens Found</div>';
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const algColor = t.alg === "none" ? "#ff4444" : t.alg.startsWith("HS") ? "#ffaa00" : "#44cc44";
+      const algIcon = t.alg === "none" ? "✗" : t.alg.startsWith("HS") ? "⚠" : "✓";
+      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+      html += '<span style="color:#eee;font-family:monospace;font-size:11px;word-break:break-all;max-width:60%">' + t.raw.substring(0, 60) + "...</span>";
+      html += '<span style="color:' + algColor + ';font-weight:bold;font-size:12px">' + algIcon + " " + t.alg + "</span>";
+      html += "</div>";
+      html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Header</summary>';
+      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.header, null, 2)) + "</pre></details>";
+      html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Payload</summary>';
+      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.payload, null, 2)) + "</pre></details>";
+      if (t.issues.length) {
+        html += '<div style="margin-top:4px">';
+        for (const issue of t.issues) {
+          const color = issue.startsWith("CRITICAL") ? "#ff4444" : "#ffaa00";
+          html += '<div style="color:' + color + ';font-size:11px">⚠ ' + issue + "</div>";
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+    return html;
+  }
+  function syntaxHighlightJSON(str) {
+    if (!str) return "";
+    str = str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return str.replace(/"((?:[^"\\]|\\.)*)"\s*:/g, '<span style="color:#ffd700">$1</span>:').replace(/"((?:[^"\\]|\\.)*)"/g, '<span style="color:#44cc44">"$1"</span>').replace(/\b(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi, '<span style="color:#7ab7ef">$1</span>').replace(/\b(true|false|null)\b/gi, '<span style="color:#cc44cc">$1</span>');
+  }
+  function analyzeAuth(requestHeaders, responseHeaders, url2) {
+    const findings = [];
+    if (requestHeaders) {
+      for (const h of requestHeaders) {
+        const lower = h.name.toLowerCase();
+        if (lower === "authorization") {
+          if (h.value.startsWith("Bearer ")) {
+            const token = h.value.substring(7);
+            findings.push({
+              type: "bearer",
+              location: "Authorization header",
+              detail: "Bearer token present (" + token.substring(0, 20) + "...)",
+              severity: token.length > 100 ? "high" : "medium",
+              recommendation: "Ensure Bearer tokens are short-lived and transmitted over HTTPS only"
+            });
+          } else if (h.value.startsWith("Basic ")) {
+            findings.push({
+              type: "basic",
+              location: "Authorization header",
+              detail: "Basic auth credentials present",
+              severity: "high",
+              recommendation: "Use token-based auth (OAuth2/Bearer) instead of Basic auth. Basic auth sends credentials in plaintext (Base64)."
+            });
+          }
+        }
+      }
+    }
+    if (responseHeaders) {
+      for (const h of responseHeaders) {
+        if (h.name.toLowerCase() === "set-cookie") {
+          const lower = h.value.toLowerCase();
+          const name = h.value.split("=")[0];
+          if (!lower.includes("secure")) {
+            findings.push({
+              type: "cookie",
+              location: "Set-Cookie: " + name,
+              detail: 'Cookie "' + name + '" missing Secure flag',
+              severity: "high",
+              recommendation: "Add the Secure flag to prevent cookie transmission over HTTP"
+            });
+          }
+          if (!lower.includes("httponly")) {
+            findings.push({
+              type: "cookie",
+              location: "Set-Cookie: " + name,
+              detail: 'Cookie "' + name + '" missing HttpOnly flag',
+              severity: "medium",
+              recommendation: "Add the HttpOnly flag to prevent XSS-based cookie theft"
+            });
+          }
+          const samesiteMatch = lower.match(/samesite=(lax|strict|none)/);
+          if (!samesiteMatch) {
+            findings.push({
+              type: "cookie",
+              location: "Set-Cookie: " + name,
+              detail: 'Cookie "' + name + '" missing SameSite attribute',
+              severity: "low",
+              recommendation: "Add SameSite=Lax or SameSite=Strict for CSRF protection"
+            });
+          } else if (samesiteMatch[1] === "none") {
+            findings.push({
+              type: "cookie",
+              location: "Set-Cookie: " + name,
+              detail: 'Cookie "' + name + '" has SameSite=None (no CSRF protection)',
+              severity: "medium",
+              recommendation: "Use SameSite=Lax or SameSite=Strict unless cross-site usage is required"
+            });
+          }
+        }
+      }
+    }
+    if (url2) {
+      const apikeyMatch = url2.match(/[?&](api[_-]?key|token|secret)=([^&]+)/i);
+      if (apikeyMatch) {
+        findings.push({
+          type: "apikey",
+          location: "URL query parameter",
+          detail: "API key/token exposed in URL: " + apikeyMatch[1] + "=" + apikeyMatch[2].substring(0, 8) + "...",
+          severity: "critical",
+          recommendation: "API keys should be sent in headers (Authorization), never in URL query strings"
+        });
+      }
+    }
+    return findings;
+  }
+  function authFindingsToHtml(findings) {
+    if (!findings.length) return "";
+    let html = '<div class="auth-analysis" style="margin-top:6px;padding:6px;background:#1a1a2e;border:1px solid #ff8800;border-radius:4px">';
+    html += '<div style="font-weight:bold;color:#ff8800;margin-bottom:4px">🔑 Auth Analysis (' + findings.length + " issues)</div>";
+    for (const f of findings) {
+      const color = f.severity === "critical" ? "#ff4444" : f.severity === "high" ? "#ff8800" : f.severity === "medium" ? "#ffaa00" : "#888";
+      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px;font-size:11px">';
+      html += '<span style="color:' + color + ';font-weight:bold">[' + f.severity.toUpperCase() + "] " + f.type.toUpperCase() + "</span>";
+      html += '<div style="color:#eee;margin-top:2px">' + f.detail + "</div>";
+      html += '<div style="color:#aaa;margin-top:2px;font-size:10px">ℹ️ ' + f.recommendation + "</div>";
+      html += "</div>";
+    }
+    html += "</div>";
+    return html;
+  }
+  function checkCORS(reqHeaders, resHeaders) {
+    let origin = "", acao = "", acac = "";
+    if (reqHeaders) {
+      for (const h of reqHeaders) {
+        if (h.name && h.name.toLowerCase() === "origin") origin = h.value;
+      }
+    }
+    if (resHeaders) {
+      for (const h of resHeaders) {
+        if (!h.name) continue;
+        const n = h.name.toLowerCase();
+        if (n === "access-control-allow-origin") acao = h.value;
+        else if (n === "access-control-allow-credentials") acac = h.value;
+        else if (n === "access-control-allow-methods") h.value;
+        else if (n === "access-control-allow-headers") h.value;
+      }
+    }
+    if (!origin) return { status: "", html: "" };
+    const issues = [];
+    if (acao === "*") issues.push("ACAO: wildcard");
+    if (acao === "*" && acac === "true") issues.push("CRITICAL: wildcard + credentials");
+    if (!acao) issues.push("Missing ACAO");
+    const cls = issues.length === 0 ? "cors-ok" : issues.length <= 1 ? "cors-warn" : "cors-bad";
+    const icon = issues.length === 0 ? "✓" : "⚠";
+    const title = issues.length ? issues.join("; ") : "CORS OK";
+    return { status: cls, html: '<span class="' + cls + '" title="' + escapeHtml$2(title) + '">' + icon + " CORS</span>", issues };
+  }
+  const SQLI_PAYLOADS = [
+    "' OR '1'='1",
+    "' UNION SELECT NULL--",
+    "'; DROP TABLE users--",
+    '" OR "1"="1',
+    "' OR 1=1--",
+    "1' AND '1'='1"
+  ];
+  const XSS_PAYLOADS = [
+    "<script>alert(1)<\/script>",
+    "<img src=x onerror=alert(1)>",
+    '"><script>alert(1)<\/script>',
+    "javascript:alert(1)",
+    "<svg onload=alert(1)>"
+  ];
+  const PATH_TRAVERSAL_PAYLOADS$1 = [
+    "../../../etc/passwd",
+    "..\\..\\..\\windows\\system32\\config\\sam",
+    "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc/passwd",
+    "....//....//....//etc/passwd"
+  ];
+  function scanForReflections(url2, body2, responseBody) {
+    const results = [];
+    if (!responseBody) return results;
+    const params = extractParams(url2, body2);
+    for (const param of params) {
+      for (const payload of SQLI_PAYLOADS) {
+        const responseLower = responseBody.toLowerCase();
+        const payloadLower = payload.toLowerCase();
+        if (responseLower.includes(payloadLower) || responseLower.includes(encodeURIComponent(payload).toLowerCase())) {
+          results.push({
+            type: "sqli",
+            parameter: param.name,
+            payload,
+            reflected: true,
+            evidence: responseBody.substring(
+              Math.max(0, responseBody.toLowerCase().indexOf(payloadLower)),
+              Math.min(responseBody.length, responseBody.toLowerCase().indexOf(payloadLower) + 80)
+            )
+          });
+        }
+      }
+      for (const payload of XSS_PAYLOADS) {
+        if (responseBody.includes(payload) || responseBody.includes(encodeURIComponent(payload))) {
+          results.push({
+            type: "xss",
+            parameter: param.name,
+            payload,
+            reflected: true,
+            evidence: responseBody.substring(
+              Math.max(0, responseBody.indexOf(payload)),
+              Math.min(responseBody.length, responseBody.indexOf(payload) + 80)
+            )
+          });
+        }
+      }
+      for (const payload of PATH_TRAVERSAL_PAYLOADS$1) {
+        if (responseBody.includes(payload)) {
+          results.push({
+            type: "path-traversal",
+            parameter: param.name,
+            payload,
+            reflected: true,
+            evidence: responseBody.substring(
+              Math.max(0, responseBody.indexOf(payload)),
+              Math.min(responseBody.length, responseBody.indexOf(payload) + 80)
+            )
+          });
+        }
+      }
+    }
+    return results;
+  }
+  function extractParams(url2, body2) {
+    const params = [];
+    const qIdx = url2.indexOf("?");
+    if (qIdx >= 0) {
+      const qs = url2.substring(qIdx + 1);
+      for (const part of qs.split("&")) {
+        const eq = part.indexOf("=");
+        if (eq >= 0) {
+          params.push({ name: decodeURIComponent(part.substring(0, eq)), value: decodeURIComponent(part.substring(eq + 1)) });
+        } else {
+          params.push({ name: decodeURIComponent(part), value: "" });
+        }
+      }
+    }
+    if (body2) {
+      try {
+        const parsed = JSON.parse(body2);
+        for (const key of Object.keys(parsed)) {
+          if (typeof parsed[key] === "string") {
+            params.push({ name: key, value: parsed[key] });
+          }
+        }
+      } catch {
+        for (const part of body2.split("&")) {
+          const eq = part.indexOf("=");
+          if (eq >= 0) {
+            params.push({ name: decodeURIComponent(part.substring(0, eq)), value: decodeURIComponent(part.substring(eq + 1)) });
+          }
+        }
+      }
+    }
+    return params;
+  }
+  function scanResultsToHtml(results) {
+    if (!results.length) return "";
+    let html = '<div class="scan-results" style="margin-top:6px;padding:6px;background:#1a1a2e;border:1px solid #ff4444;border-radius:4px">';
+    html += '<div style="font-weight:bold;color:#ff4444;margin-bottom:4px">⚠ Reflection Scanner Results (' + results.length + ")</div>";
+    for (const r of results) {
+      const typeColor = r.type === "sqli" ? "#ff4444" : r.type === "xss" ? "#ff8800" : "#ffaa00";
+      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px;font-size:11px">';
+      html += '<span style="color:' + typeColor + ';font-weight:bold">[' + r.type.toUpperCase() + "]</span> ";
+      html += '<span style="color:#eee">Param: <b>' + r.parameter + "</b></span>";
+      html += '<div style="color:#888;margin-top:2px;word-break:break-all">Payload: ' + r.payload + "</div>";
+      if (r.evidence) {
+        html += '<div style="color:#aaa;margin-top:2px;font-family:monospace;font-size:10px;word-break:break-all">Evidence: ' + r.evidence.substring(0, 100) + "</div>";
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+    return html;
+  }
+  function parseCookies(headers2) {
+    const cookies = [];
+    if (!headers2) return cookies;
+    for (const h of headers2) {
+      const n = h.name ? h.name.toLowerCase() : "";
+      if (n === "set-cookie") {
+        const parts = h.value.split(";");
+        const c = { name: "", value: "", domain: "", path: "", expires: "", httponly: false, secure: false, samesite: "" };
+        for (let j = 0; j < parts.length; j++) {
+          const p = parts[j].trim();
+          const kv = p.split("=");
+          const key = kv[0].trim().toLowerCase();
+          const val = kv.slice(1).join("=");
+          if (j === 0) {
+            c.name = kv[0].trim();
+            c.value = val;
+          } else if (key === "domain") c.domain = val;
+          else if (key === "path") c.path = val;
+          else if (key === "expires") c.expires = val;
+          else if (key === "max-age") c.expires = "max-age=" + val;
+          else if (key === "httponly") c.httponly = true;
+          else if (key === "secure") c.secure = true;
+          else if (key === "samesite") c.samesite = val.toLowerCase();
+        }
+        cookies.push(c);
+      }
+    }
+    return cookies;
+  }
+  function cookieHtml(cookies) {
+    if (!cookies.length) return "";
+    let html = '<table><tr><th>Name</th><th>Value</th><th>Domain</th><th title="HttpOnly — inaccessible to JavaScript">HttpOnly</th><th title="Secure — only sent over HTTPS">Secure</th><th title="SameSite — controls cross-site behavior">SameSite</th></tr>';
+    for (const c of cookies) {
+      const h = c.httponly ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
+      const s = c.secure ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
+      const ss = c.samesite ? c.samesite === "lax" || c.samesite === "strict" ? '<span class="flag-ok">' + c.samesite + "</span>" : '<span class="flag-info">' + c.samesite + "</span>" : '<span class="flag-missing">&#x2717;</span>';
+      html += "<tr><td>" + escapeHtml$2(c.name) + "</td><td>" + escapeHtml$2(c.value.substring(0, 30)) + "</td><td>" + escapeHtml$2(c.domain) + "</td><td>" + h + "</td><td>" + s + "</td><td>" + ss + "</td></tr>";
+    }
+    return html + "</table>";
+  }
+  function sev(s) {
+    if (s === "Password" || s === "API Key") return "critical";
+    if (s === "JWT" || s === "Bearer Token" || s === "AWS Key" || s === "GitHub Token" || s === "OAuth Token") return "high";
+    if (s === "Token") return "medium";
+    return "info";
+  }
+  function collectFindings(data) {
+    const findings = [];
+    const body2 = data.response?.content?.text || "";
+    const allText = getRequestText(data) + " " + body2;
+    const resHeaders = data.response?.headers || [];
+    const reqHeaders = data.request?.headers || null;
+    const secrets = scanForSecrets(allText);
+    const secretCounts = {};
+    for (const s of secrets) {
+      secretCounts[s.type] = (secretCounts[s.type] || 0) + 1;
+    }
+    for (const type in secretCounts) {
+      findings.push({
+        category: "secret",
+        severity: sev(type),
+        title: `${type} detectado (${secretCounts[type]})`,
+        detail: `Encontrado en request/response body`
+      });
+    }
+    const jwts = findJWTInText(allText);
+    for (const t of jwts) {
+      for (const issue of t.issues) {
+        findings.push({
+          category: "jwt",
+          severity: issue.startsWith("CRITICAL") ? "critical" : "medium",
+          title: `JWT: ${issue}`,
+          detail: `Algoritmo: ${t.alg}`
+        });
+      }
+    }
+    const authFindings = analyzeAuth(reqHeaders, resHeaders, data.request?.url || "");
+    for (const f of authFindings) {
+      findings.push({
+        category: "auth",
+        severity: f.severity,
+        title: f.detail,
+        detail: f.recommendation,
+        location: f.location
+      });
+    }
+    const found = {};
+    if (resHeaders) {
+      for (const h of resHeaders) {
+        const name = h.name ? h.name.toLowerCase() : "";
+        if (SECURITY_HEADERS[name]) found[name] = h.value;
+      }
+    }
+    for (const key in SECURITY_HEADERS) {
+      const h = SECURITY_HEADERS[key];
+      if (found[key] !== void 0) {
+        const ok = h.check(found[key]);
+        if (!ok) {
+          findings.push({
+            category: "header",
+            severity: "medium",
+            title: `${h.label} mal configurado`,
+            detail: `${key}: ${found[key]} — ${h.desc}`
+          });
+        }
+      } else {
+        findings.push({
+          category: "header",
+          severity: key === "content-security-policy" ? "medium" : "high",
+          title: `${h.label} faltante`,
+          detail: h.desc
+        });
+      }
+    }
+    if (resHeaders) {
+      for (const h of resHeaders) {
+        const name = h.name ? h.name.toLowerCase() : "";
+        if (INFO_DISCLOSURE_HEADERS[name]) {
+          findings.push({
+            category: "header",
+            severity: "info",
+            title: `Info disclosure: ${name}`,
+            detail: `${name}: ${h.value.substring(0, 80)} — ${INFO_DISCLOSURE_HEADERS[name].desc}`
+          });
+        }
+      }
+    }
+    const corsResult = checkCORS(reqHeaders, resHeaders);
+    if (corsResult.issues && corsResult.issues.length) {
+      for (const issue of corsResult.issues) {
+        findings.push({
+          category: "cors",
+          severity: issue.indexOf("CRITICAL") >= 0 ? "critical" : "high",
+          title: `CORS: ${issue}`,
+          detail: "Cross-Origin Resource Sharing misconfiguration"
+        });
+      }
+    }
+    const scanResults = scanForReflections(
+      data.request?.url || "",
+      data.request?.postData ? typeof data.request.postData === "string" ? data.request.postData : data.request.postData.text || "" : "",
+      body2
+    );
+    for (const r of scanResults) {
+      findings.push({
+        category: "scanner",
+        severity: r.type === "sqli" ? "high" : r.type === "xss" ? "high" : "medium",
+        title: `${r.type.toUpperCase()} reflejado`,
+        detail: `Parámetro "${r.parameter}" — Payload: ${r.payload}`,
+        location: r.evidence
+      });
+    }
+    const cookies = parseCookies(resHeaders);
+    for (const c of cookies) {
+      if (!c.secure) {
+        findings.push({ category: "cookie", severity: "high", title: "Cookie sin Secure", detail: `${c.name} no tiene flag Secure`, location: `Set-Cookie: ${c.name}` });
+      }
+      if (!c.httponly) {
+        findings.push({ category: "cookie", severity: "medium", title: "Cookie sin HttpOnly", detail: `${c.name} no tiene flag HttpOnly`, location: `Set-Cookie: ${c.name}` });
+      }
+      if (!c.samesite) {
+        findings.push({ category: "cookie", severity: "low", title: "Cookie sin SameSite", detail: `${c.name} no tiene SameSite`, location: `Set-Cookie: ${c.name}` });
+      }
+    }
+    return findings;
+  }
+  const SEV_ORDER = ["critical", "high", "medium", "low", "info"];
+  const SEV_LABEL = {
+    critical: "🔴 CRÍTICOS",
+    high: "🟠 ALTOS",
+    medium: "🔵 MEDIOS",
+    low: "🟢 BAJOS",
+    info: "⚪ INFORMACIÓN"
+  };
+  const SEV_COLOR = {
+    critical: "#ff4444",
+    high: "#ff8800",
+    medium: "#4488ff",
+    low: "#44cc44",
+    info: "#888888"
+  };
+  function findingsToGroupsHtml(findings) {
+    if (!findings.length) return '<div style="color:#888;padding:12px;text-align:center">No se encontraron hallazgos</div>';
+    const grouped = {};
+    for (const f of findings) {
+      if (!grouped[f.severity]) grouped[f.severity] = [];
+      grouped[f.severity].push(f);
+    }
+    let html = "";
+    for (const sev2 of SEV_ORDER) {
+      const items = grouped[sev2];
+      if (!items || !items.length) continue;
+      html += `<div class="finding-group">`;
+      html += `<div class="finding-group-label" style="color:${SEV_COLOR[sev2]}">${SEV_LABEL[sev2]} <span class="finding-group-count">${items.length}</span></div>`;
+      for (const f of items) {
+        html += '<div class="finding-item">';
+        html += `<div class="finding-title" style="color:${SEV_COLOR[sev2]}">${escapeHtml$2(f.title)}</div>`;
+        if (f.detail) html += `<div class="finding-detail">${escapeHtml$2(f.detail)}</div>`;
+        if (f.location) html += `<div class="finding-location">${escapeHtml$2(f.location)}</div>`;
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+    return html;
+  }
   let _onDataCallback = null;
   function setOnDataCallback(cb) {
     _onDataCallback = cb;
-  }
-  function getRequestText(data) {
-    let text = "";
-    if (!data) return text;
-    text += data.request && data.request.method || "";
-    text += data.request && data.request.url || "";
-    text += data.response && data.response.status || "";
-    if (data.request && data.request.headers) {
-      for (const h of data.request.headers) {
-        text += (h.name || "") + (h.value || "");
-      }
-    }
-    if (data.request && data.request.postData) {
-      const pd = data.request.postData;
-      text += (typeof pd === "string" ? pd : pd.text || "") + "";
-    }
-    if (data.response && data.response.headers) {
-      for (const h of data.response.headers) {
-        text += (h.name || "") + (h.value || "");
-      }
-    }
-    if (data.response && data.response.content) {
-      const ct = data.response.content;
-      text += ct.text || JSON.stringify(ct) || "";
-    }
-    return text.toLowerCase();
   }
   function applyFilters() {
     const q = values.searchQuery;
@@ -539,6 +1074,12 @@
     }
     $(".clear", tr).html("&nbsp;");
     $(".pin", tr).html('<span class="pin-star">☆</span>');
+    const findings = collectFindings(data);
+    if (findings.length) {
+      $(".findings", tr).html('<span class="findings-icon" title="Tiene hallazgos">🔍</span>');
+    } else {
+      $(".findings", tr).html("&nbsp;");
+    }
     $(".url", tr).html(_url);
     const _domain = hash(url2.hostname);
     addFilterItem("url", _domain, url2.hostname);
@@ -1163,296 +1704,6 @@
     const s = typeof body2 === "string" ? body2 : JSON.stringify(body2);
     return /(query|mutation)\s+\w/.test(s) || s.indexOf('"query"') >= 0 && s.indexOf('"variables"') >= 0;
   }
-  function decodeJWT(token) {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    try {
-      const header = JSON.parse(atob(parts[0]));
-      const payload = JSON.parse(atob(parts[1]));
-      const signature = parts[2];
-      const issues = [];
-      const alg = header.alg || "unknown";
-      if (alg === "none") issues.push('CRITICAL: Algorithm is "none" — token can be forged');
-      if (alg === "HS256" || alg === "HS384" || alg === "HS512") issues.push("Symmetric algorithm (" + alg + ") — verify secret strength");
-      if (!alg || alg === "") issues.push("Missing algorithm");
-      const now = Math.floor(Date.now() / 1e3);
-      if (payload.exp && payload.exp < now) issues.push("Token EXPIRED (exp: " + new Date(payload.exp * 1e3).toISOString() + ")");
-      if (payload.nbf && payload.nbf > now) issues.push("Token not yet valid (nbf: " + new Date(payload.nbf * 1e3).toISOString() + ")");
-      return { raw: token, header, payload, signature, alg, valid: issues.length === 0, issues };
-    } catch {
-      return null;
-    }
-  }
-  function findJWTInText(text) {
-    if (!text) return [];
-    const pattern = /eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g;
-    const tokens = [];
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      const decoded = decodeJWT(match[0]);
-      if (decoded) tokens.push(decoded);
-    }
-    return tokens;
-  }
-  function jwtToHtml(tokens) {
-    if (!tokens.length) return "";
-    let html = '<div class="jwt-inspector" style="margin-top:8px;padding:6px;background:#1a1a2e;border:1px solid #333;border-radius:4px">';
-    html += '<div style="font-weight:bold;color:#ffd700;margin-bottom:4px">🔒 JWT Tokens Found</div>';
-    for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-      const algColor = t.alg === "none" ? "#ff4444" : t.alg.startsWith("HS") ? "#ffaa00" : "#44cc44";
-      const algIcon = t.alg === "none" ? "✗" : t.alg.startsWith("HS") ? "⚠" : "✓";
-      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center">';
-      html += '<span style="color:#eee;font-family:monospace;font-size:11px;word-break:break-all;max-width:60%">' + t.raw.substring(0, 60) + "...</span>";
-      html += '<span style="color:' + algColor + ';font-weight:bold;font-size:12px">' + algIcon + " " + t.alg + "</span>";
-      html += "</div>";
-      html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Header</summary>';
-      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.header, null, 2)) + "</pre></details>";
-      html += '<details style="margin-top:4px;font-size:11px"><summary style="cursor:pointer;color:#888">Payload</summary>';
-      html += '<pre style="margin:2px 0;padding:4px;background:#0f0f23;border-radius:3px;color:#7ab7ef;font-size:10px;overflow-x:auto">' + syntaxHighlightJSON(JSON.stringify(t.payload, null, 2)) + "</pre></details>";
-      if (t.issues.length) {
-        html += '<div style="margin-top:4px">';
-        for (const issue of t.issues) {
-          const color = issue.startsWith("CRITICAL") ? "#ff4444" : "#ffaa00";
-          html += '<div style="color:' + color + ';font-size:11px">⚠ ' + issue + "</div>";
-        }
-        html += "</div>";
-      }
-      html += "</div>";
-    }
-    html += "</div>";
-    return html;
-  }
-  function syntaxHighlightJSON(str) {
-    if (!str) return "";
-    str = str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return str.replace(/"((?:[^"\\]|\\.)*)"\s*:/g, '<span style="color:#ffd700">$1</span>:').replace(/"((?:[^"\\]|\\.)*)"/g, '<span style="color:#44cc44">"$1"</span>').replace(/\b(-?\d+\.?\d*(?:e[+-]?\d+)?)\b/gi, '<span style="color:#7ab7ef">$1</span>').replace(/\b(true|false|null)\b/gi, '<span style="color:#cc44cc">$1</span>');
-  }
-  function analyzeAuth(requestHeaders, responseHeaders, url2) {
-    const findings = [];
-    if (requestHeaders) {
-      for (const h of requestHeaders) {
-        const lower = h.name.toLowerCase();
-        if (lower === "authorization") {
-          if (h.value.startsWith("Bearer ")) {
-            const token = h.value.substring(7);
-            findings.push({
-              type: "bearer",
-              location: "Authorization header",
-              detail: "Bearer token present (" + token.substring(0, 20) + "...)",
-              severity: token.length > 100 ? "high" : "medium",
-              recommendation: "Ensure Bearer tokens are short-lived and transmitted over HTTPS only"
-            });
-          } else if (h.value.startsWith("Basic ")) {
-            findings.push({
-              type: "basic",
-              location: "Authorization header",
-              detail: "Basic auth credentials present",
-              severity: "high",
-              recommendation: "Use token-based auth (OAuth2/Bearer) instead of Basic auth. Basic auth sends credentials in plaintext (Base64)."
-            });
-          }
-        }
-      }
-    }
-    if (responseHeaders) {
-      for (const h of responseHeaders) {
-        if (h.name.toLowerCase() === "set-cookie") {
-          const lower = h.value.toLowerCase();
-          const name = h.value.split("=")[0];
-          if (!lower.includes("secure")) {
-            findings.push({
-              type: "cookie",
-              location: "Set-Cookie: " + name,
-              detail: 'Cookie "' + name + '" missing Secure flag',
-              severity: "high",
-              recommendation: "Add the Secure flag to prevent cookie transmission over HTTP"
-            });
-          }
-          if (!lower.includes("httponly")) {
-            findings.push({
-              type: "cookie",
-              location: "Set-Cookie: " + name,
-              detail: 'Cookie "' + name + '" missing HttpOnly flag',
-              severity: "medium",
-              recommendation: "Add the HttpOnly flag to prevent XSS-based cookie theft"
-            });
-          }
-          const samesiteMatch = lower.match(/samesite=(lax|strict|none)/);
-          if (!samesiteMatch) {
-            findings.push({
-              type: "cookie",
-              location: "Set-Cookie: " + name,
-              detail: 'Cookie "' + name + '" missing SameSite attribute',
-              severity: "low",
-              recommendation: "Add SameSite=Lax or SameSite=Strict for CSRF protection"
-            });
-          } else if (samesiteMatch[1] === "none") {
-            findings.push({
-              type: "cookie",
-              location: "Set-Cookie: " + name,
-              detail: 'Cookie "' + name + '" has SameSite=None (no CSRF protection)',
-              severity: "medium",
-              recommendation: "Use SameSite=Lax or SameSite=Strict unless cross-site usage is required"
-            });
-          }
-        }
-      }
-    }
-    if (url2) {
-      const apikeyMatch = url2.match(/[?&](api[_-]?key|token|secret)=([^&]+)/i);
-      if (apikeyMatch) {
-        findings.push({
-          type: "apikey",
-          location: "URL query parameter",
-          detail: "API key/token exposed in URL: " + apikeyMatch[1] + "=" + apikeyMatch[2].substring(0, 8) + "...",
-          severity: "critical",
-          recommendation: "API keys should be sent in headers (Authorization), never in URL query strings"
-        });
-      }
-    }
-    return findings;
-  }
-  function authFindingsToHtml(findings) {
-    if (!findings.length) return "";
-    let html = '<div class="auth-analysis" style="margin-top:6px;padding:6px;background:#1a1a2e;border:1px solid #ff8800;border-radius:4px">';
-    html += '<div style="font-weight:bold;color:#ff8800;margin-bottom:4px">🔑 Auth Analysis (' + findings.length + " issues)</div>";
-    for (const f of findings) {
-      const color = f.severity === "critical" ? "#ff4444" : f.severity === "high" ? "#ff8800" : f.severity === "medium" ? "#ffaa00" : "#888";
-      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px;font-size:11px">';
-      html += '<span style="color:' + color + ';font-weight:bold">[' + f.severity.toUpperCase() + "] " + f.type.toUpperCase() + "</span>";
-      html += '<div style="color:#eee;margin-top:2px">' + f.detail + "</div>";
-      html += '<div style="color:#aaa;margin-top:2px;font-size:10px">ℹ️ ' + f.recommendation + "</div>";
-      html += "</div>";
-    }
-    html += "</div>";
-    return html;
-  }
-  const SQLI_PAYLOADS = [
-    "' OR '1'='1",
-    "' UNION SELECT NULL--",
-    "'; DROP TABLE users--",
-    '" OR "1"="1',
-    "' OR 1=1--",
-    "1' AND '1'='1"
-  ];
-  const XSS_PAYLOADS = [
-    "<script>alert(1)<\/script>",
-    "<img src=x onerror=alert(1)>",
-    '"><script>alert(1)<\/script>',
-    "javascript:alert(1)",
-    "<svg onload=alert(1)>"
-  ];
-  const PATH_TRAVERSAL_PAYLOADS$1 = [
-    "../../../etc/passwd",
-    "..\\..\\..\\windows\\system32\\config\\sam",
-    "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc/passwd",
-    "....//....//....//etc/passwd"
-  ];
-  function scanForReflections(url2, body2, responseBody) {
-    const results = [];
-    if (!responseBody) return results;
-    const params = extractParams(url2, body2);
-    for (const param of params) {
-      for (const payload of SQLI_PAYLOADS) {
-        const responseLower = responseBody.toLowerCase();
-        const payloadLower = payload.toLowerCase();
-        if (responseLower.includes(payloadLower) || responseLower.includes(encodeURIComponent(payload).toLowerCase())) {
-          results.push({
-            type: "sqli",
-            parameter: param.name,
-            payload,
-            reflected: true,
-            evidence: responseBody.substring(
-              Math.max(0, responseBody.toLowerCase().indexOf(payloadLower)),
-              Math.min(responseBody.length, responseBody.toLowerCase().indexOf(payloadLower) + 80)
-            )
-          });
-        }
-      }
-      for (const payload of XSS_PAYLOADS) {
-        if (responseBody.includes(payload) || responseBody.includes(encodeURIComponent(payload))) {
-          results.push({
-            type: "xss",
-            parameter: param.name,
-            payload,
-            reflected: true,
-            evidence: responseBody.substring(
-              Math.max(0, responseBody.indexOf(payload)),
-              Math.min(responseBody.length, responseBody.indexOf(payload) + 80)
-            )
-          });
-        }
-      }
-      for (const payload of PATH_TRAVERSAL_PAYLOADS$1) {
-        if (responseBody.includes(payload)) {
-          results.push({
-            type: "path-traversal",
-            parameter: param.name,
-            payload,
-            reflected: true,
-            evidence: responseBody.substring(
-              Math.max(0, responseBody.indexOf(payload)),
-              Math.min(responseBody.length, responseBody.indexOf(payload) + 80)
-            )
-          });
-        }
-      }
-    }
-    return results;
-  }
-  function extractParams(url2, body2) {
-    const params = [];
-    const qIdx = url2.indexOf("?");
-    if (qIdx >= 0) {
-      const qs = url2.substring(qIdx + 1);
-      for (const part of qs.split("&")) {
-        const eq = part.indexOf("=");
-        if (eq >= 0) {
-          params.push({ name: decodeURIComponent(part.substring(0, eq)), value: decodeURIComponent(part.substring(eq + 1)) });
-        } else {
-          params.push({ name: decodeURIComponent(part), value: "" });
-        }
-      }
-    }
-    if (body2) {
-      try {
-        const parsed = JSON.parse(body2);
-        for (const key of Object.keys(parsed)) {
-          if (typeof parsed[key] === "string") {
-            params.push({ name: key, value: parsed[key] });
-          }
-        }
-      } catch {
-        for (const part of body2.split("&")) {
-          const eq = part.indexOf("=");
-          if (eq >= 0) {
-            params.push({ name: decodeURIComponent(part.substring(0, eq)), value: decodeURIComponent(part.substring(eq + 1)) });
-          }
-        }
-      }
-    }
-    return params;
-  }
-  function scanResultsToHtml(results) {
-    if (!results.length) return "";
-    let html = '<div class="scan-results" style="margin-top:6px;padding:6px;background:#1a1a2e;border:1px solid #ff4444;border-radius:4px">';
-    html += '<div style="font-weight:bold;color:#ff4444;margin-bottom:4px">⚠ Reflection Scanner Results (' + results.length + ")</div>";
-    for (const r of results) {
-      const typeColor = r.type === "sqli" ? "#ff4444" : r.type === "xss" ? "#ff8800" : "#ffaa00";
-      html += '<div style="margin:4px 0;padding:4px;background:#16213e;border-radius:3px;font-size:11px">';
-      html += '<span style="color:' + typeColor + ';font-weight:bold">[' + r.type.toUpperCase() + "]</span> ";
-      html += '<span style="color:#eee">Param: <b>' + r.parameter + "</b></span>";
-      html += '<div style="color:#888;margin-top:2px;word-break:break-all">Payload: ' + r.payload + "</div>";
-      if (r.evidence) {
-        html += '<div style="color:#aaa;margin-top:2px;font-family:monospace;font-size:10px;word-break:break-all">Evidence: ' + r.evidence.substring(0, 100) + "</div>";
-      }
-      html += "</div>";
-    }
-    html += "</div>";
-    return html;
-  }
   function checkSecurityHeaders(headers2) {
     const found = {};
     const foundDisclosure = {};
@@ -1485,84 +1736,119 @@
     }
     return html;
   }
-  function checkCORS(reqHeaders, resHeaders) {
-    let origin = "", acao = "", acac = "";
-    if (reqHeaders) {
-      for (const h of reqHeaders) {
-        if (h.name && h.name.toLowerCase() === "origin") origin = h.value;
-      }
-    }
-    if (resHeaders) {
-      for (const h of resHeaders) {
-        if (!h.name) continue;
-        const n = h.name.toLowerCase();
-        if (n === "access-control-allow-origin") acao = h.value;
-        else if (n === "access-control-allow-credentials") acac = h.value;
-        else if (n === "access-control-allow-methods") h.value;
-        else if (n === "access-control-allow-headers") h.value;
-      }
-    }
-    if (!origin) return { status: "", html: "" };
-    const issues = [];
-    if (acao === "*") issues.push("ACAO: wildcard");
-    if (acao === "*" && acac === "true") issues.push("CRITICAL: wildcard + credentials");
-    if (!acao) issues.push("Missing ACAO");
-    const cls = issues.length === 0 ? "cors-ok" : issues.length <= 1 ? "cors-warn" : "cors-bad";
-    const icon = issues.length === 0 ? "✓" : "⚠";
-    const title = issues.length ? issues.join("; ") : "CORS OK";
-    return { status: cls, html: '<span class="' + cls + '" title="' + escapeHtml$2(title) + '">' + icon + " CORS</span>", issues };
-  }
-  function parseCookies(headers2) {
-    const cookies = [];
-    if (!headers2) return cookies;
-    for (const h of headers2) {
-      const n = h.name ? h.name.toLowerCase() : "";
-      if (n === "set-cookie") {
-        const parts = h.value.split(";");
-        const c = { name: "", value: "", domain: "", path: "", expires: "", httponly: false, secure: false, samesite: "" };
-        for (let j = 0; j < parts.length; j++) {
-          const p = parts[j].trim();
-          const kv = p.split("=");
-          const key = kv[0].trim().toLowerCase();
-          const val = kv.slice(1).join("=");
-          if (j === 0) {
-            c.name = kv[0].trim();
-            c.value = val;
-          } else if (key === "domain") c.domain = val;
-          else if (key === "path") c.path = val;
-          else if (key === "expires") c.expires = val;
-          else if (key === "max-age") c.expires = "max-age=" + val;
-          else if (key === "httponly") c.httponly = true;
-          else if (key === "secure") c.secure = true;
-          else if (key === "samesite") c.samesite = val.toLowerCase();
+  let _groupedFindings = [];
+  function exportGlobalFindingsCsv() {
+    const rows2 = ["Severidad,Tipo,Detalle,Metodo,URL"];
+    const seen = /* @__PURE__ */ new Set();
+    for (const gf of _groupedFindings) {
+      for (const loc of gf.locations) {
+        let displayUrl = loc.url;
+        try {
+          const u = new URL(loc.url);
+          displayUrl = u.hostname + u.pathname;
+        } catch {
         }
-        cookies.push(c);
+        const key = gf.title + loc.method + displayUrl;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const sev2 = gf.severity;
+        const title = gf.title.replace(/"/g, '""');
+        const detail = (gf.detail || "").replace(/"/g, '""');
+        rows2.push(`"${sev2}","${title}","${detail}","${loc.method}","${displayUrl}"`);
       }
     }
-    return cookies;
+    downloadJSON(rows2.join("\n"), "hallazgos-globales.csv");
   }
-  function cookieHtml(cookies) {
-    if (!cookies.length) return "";
-    let html = '<table><tr><th>Name</th><th>Value</th><th>Domain</th><th title="HttpOnly — inaccessible to JavaScript">HttpOnly</th><th title="Secure — only sent over HTTPS">Secure</th><th title="SameSite — controls cross-site behavior">SameSite</th></tr>';
-    for (const c of cookies) {
-      const h = c.httponly ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
-      const s = c.secure ? '<span class="flag-ok">&#x2713;</span>' : '<span class="flag-missing">&#x2717;</span>';
-      const ss = c.samesite ? c.samesite === "lax" || c.samesite === "strict" ? '<span class="flag-ok">' + c.samesite + "</span>" : '<span class="flag-info">' + c.samesite + "</span>" : '<span class="flag-missing">&#x2717;</span>';
-      html += "<tr><td>" + escapeHtml$2(c.name) + "</td><td>" + escapeHtml$2(c.value.substring(0, 30)) + "</td><td>" + escapeHtml$2(c.domain) + "</td><td>" + h + "</td><td>" + s + "</td><td>" + ss + "</td></tr>";
-    }
-    return html + "</table>";
+  function renderFindingsDialog(data) {
+    const findings = collectFindings(data);
+    const method2 = data.request?.method || "GET";
+    let url2 = data.request?.url || "";
+    if (url2.length > 80) url2 = url2.substring(0, 77) + "...";
+    return `<div id="findings-dialog" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:620px;max-height:80vh;background:#1e1e1e;border:1px solid #444;border-radius:6px;z-index:9999;padding:12px;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #333">
+    <span style="font-weight:bold;color:#ffd700;font-size:13px">🔍 Hallazgos: <span style="color:#888;font-weight:normal">${escapeHtml$2(method2)} ${escapeHtml$2(url2)}</span></span>
+    <button id="findings-close" class="btn btn-xs btn-default" style="padding:0 6px">&times;</button>
+  </div>
+  <div class="findings-body">${findingsToGroupsHtml(findings)}</div>
+</div>`;
   }
-  function scanForSecrets(text) {
-    if (!text) return [];
-    const found = [];
-    for (const p of SECRET_PATTERNS) {
-      p.regex.lastIndex = 0;
-      let m;
-      while ((m = p.regex.exec(text)) !== null) {
-        found.push({ type: p.name, match: m[0].substring(0, 40) });
+  function renderGlobalFindingsDialog() {
+    const typeMap = /* @__PURE__ */ new Map();
+    let requestCount = 0;
+    let totalTypes = 0;
+    let count = 0;
+    for (const idStr in values.requests) {
+      if (count++ > 500) break;
+      const id2 = Number(idStr);
+      const data = values.requests[id2];
+      if (!data || !data.request) continue;
+      const findings = collectFindings(data);
+      if (findings.length === 0) continue;
+      requestCount++;
+      for (const f of findings) {
+        const key = f.title + "∣" + (f.detail || "");
+        let existing = typeMap.get(key);
+        if (!existing) {
+          existing = { title: f.title, detail: f.detail, severity: f.severity, locations: [] };
+          typeMap.set(key, existing);
+          totalTypes++;
+        }
+        existing.locations.push({
+          method: data.request.method,
+          url: data.request.url,
+          id: id2
+        });
       }
     }
-    return found;
+    const SEV_ORDER2 = ["critical", "high", "medium", "low", "info"];
+    const SEV_COLOR2 = { critical: "#ff4444", high: "#ff8800", medium: "#4488ff", low: "#44cc44", info: "#888888" };
+    const SEV_LABEL2 = { critical: "🔴 CRÍTICOS", high: "🟠 ALTOS", medium: "🔵 MEDIOS", low: "🟢 BAJOS", info: "⚪ INFORMACIÓN" };
+    const grouped = /* @__PURE__ */ new Map();
+    for (const gf of typeMap.values()) {
+      if (!grouped.has(gf.severity)) grouped.set(gf.severity, []);
+      grouped.get(gf.severity).push(gf);
+    }
+    _groupedFindings = Array.from(typeMap.values());
+    let bodyHtml = "";
+    if (!totalTypes) {
+      bodyHtml = '<div style="color:#888;padding:20px;text-align:center">No se encontraron hallazgos en ningún request</div>';
+    } else {
+      for (const sev2 of SEV_ORDER2) {
+        const items = grouped.get(sev2);
+        if (!items || !items.length) continue;
+        bodyHtml += `<div class="finding-group">`;
+        bodyHtml += `<div class="finding-group-label" style="color:${SEV_COLOR2[sev2]}">${SEV_LABEL2[sev2]} <span class="finding-group-count">${items.length} tipos, ${items.reduce((s, g) => s + g.locations.length, 0)} ocurrencias</span></div>`;
+        for (const gf of items) {
+          bodyHtml += '<div class="finding-item" style="margin-bottom:4px">';
+          bodyHtml += `<div class="finding-title" style="color:${SEV_COLOR2[sev2]}">${escapeHtml$2(gf.title)}</div>`;
+          if (gf.detail) bodyHtml += `<div class="finding-detail">${escapeHtml$2(gf.detail)}</div>`;
+          bodyHtml += `<div style="margin-top:3px;font-size:10px;color:#aaa">`;
+          const seenLocations = /* @__PURE__ */ new Set();
+          for (const loc of gf.locations) {
+            let displayUrl = loc.url;
+            try {
+              const u = new URL(loc.url);
+              displayUrl = u.hostname + u.pathname;
+            } catch {
+            }
+            const locKey = loc.method + displayUrl;
+            if (seenLocations.has(locKey)) continue;
+            seenLocations.add(locKey);
+            bodyHtml += `<div style="padding:1px 0 1px 10px;color:#888">• ${escapeHtml$2(loc.method)} ${escapeHtml$2(displayUrl)}</div>`;
+          }
+          bodyHtml += `</div></div>`;
+        }
+        bodyHtml += "</div>";
+      }
+    }
+    return `<div id="findings-global-dialog" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:720px;max-height:85vh;background:#1e1e1e;border:1px solid #444;border-radius:6px;z-index:9999;padding:12px;overflow-y:auto;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #333">
+    <span style="font-weight:bold;color:#ffd700;font-size:13px">🔍 Hallazgos Globales <span style="color:#888;font-weight:normal;font-size:11px">(${requestCount} requests, ${totalTypes} tipos de hallazgos)</span></span>
+    <div><button id="findings-global-export" class="btn btn-xs btn-default" style="margin-right:4px">Export CSV</button><button id="findings-global-close" class="btn btn-xs btn-default" style="padding:0 6px">&times;</button></div>
+  </div>
+  <div style="font-size:10px;color:#666;margin-bottom:6px">Cada ubicación listada una sola vez por tipo de hallazgo</div>
+  <div class="findings-body">${bodyHtml}</div>
+</div>`;
   }
   function requestToPostmanItem(data) {
     if (!data || !data.request) return null;
@@ -3282,14 +3568,20 @@
       });
     } catch {
     }
+    function isInternalUrl(url2) {
+      if (!url2) return true;
+      return url2.startsWith("chrome-extension://") || url2.startsWith("chrome://") || url2.startsWith("edge://") || url2.startsWith("about:");
+    }
     try {
       if (chrome.devtools) {
         chrome.devtools.network.getHAR(function(log) {
           for (const entry of log.entries) {
+            if (isInternalUrl(entry.request?.url)) continue;
             onData(entry);
           }
         });
         chrome.devtools.network.onRequestFinished.addListener(function(entry) {
+          if (isInternalUrl(entry.request?.url)) return;
           onData(entry);
         });
       }
@@ -3511,6 +3803,33 @@
       const id2 = parseInt($row.attr("id") || "");
       if (id2) saveBookmark(id2, $row.hasClass("pinned"));
     });
+    $(document).on("click", "#findings-btn", function() {
+      const id2 = parseInt($("#form-id").val());
+      const data = id2 > 0 ? values.requests[id2] : null;
+      if (!data) {
+        alert("Select a request first");
+        return;
+      }
+      const existing = $("#findings-dialog");
+      if (existing.length) {
+        existing.remove();
+        return;
+      }
+      $("body").append(renderFindingsDialog(data));
+      $("#findings-close").on("click", function() {
+        $("#findings-dialog").remove();
+      });
+    });
+    $(document).on("click", "#findings-global-btn", function() {
+      $("#findings-global-dialog").remove();
+      $("body").append(renderGlobalFindingsDialog());
+      $("#findings-global-close").on("click", function() {
+        $("#findings-global-dialog").remove();
+      });
+    });
+    $(document).on("click", "#findings-global-export", function() {
+      exportGlobalFindingsCsv();
+    });
     $(document).on("click", ".req .clear", function() {
       const $row = $(this).closest(".req");
       $row.toggleClass("selected-for-collection");
@@ -3554,6 +3873,7 @@
       $(this).text(newDelay ? newDelay + "ms" : "∞");
       $(this).toggleClass("active", newDelay > 0);
     });
+    $(".search-bar-top").prepend('<button id="findings-global-btn" class="btn btn-xs btn-default" type="button" title="Hallazgos globales en todos los requests" style="margin-right:4px">🔍 Global</button>');
     const $viewportBar = $('<div id="viewport-bar"><button data-width="375">Mobile</button><button data-width="768">Tablet</button><button data-width="1024">Desktop</button><button data-width="0">Reset</button><span id="rate-badge" class="rate-badge" style="display:none">∞</span></div>');
     $(".search-bar-top").after($viewportBar);
     $viewportBar.hide();
@@ -3561,6 +3881,7 @@
     $(".url-actions").append('<button id="fuzzer-btn" class="btn btn-xs btn-default" type="button" title="Fuzz parameters">⚡ Fuzz</button>');
     $(".url-actions").append('<button id="repeater-btn" class="btn btn-xs btn-default" type="button" title="Repeater">🔄 Repeat</button>');
     $(".url-actions").append('<button id="decoder-btn" class="btn btn-xs btn-default" type="button" title="Inline decoders">🔍 Decode</button>');
+    $(".url-actions").append('<button id="findings-btn" class="btn btn-xs btn-default" type="button" title="Hallazgos del request actual">🔍 Hallazgos</button>');
     $(document).on("click", "#intruder-btn", function() {
       const existing = $("#intruder-dialog");
       if (existing.length) {
