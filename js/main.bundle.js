@@ -144,7 +144,8 @@
     { name: "AWS Key", regex: /AKIA[0-9A-Z]{16}/g },
     { name: "GitHub Token", regex: /gh[pousr]_[a-zA-Z0-9]{36,}/g },
     { name: "Password", regex: /(password|passwd|pwd)[=:]\s*['"]?([^&"'\s]{4,})/gi },
-    { name: "Token", regex: /(['"])?(token|secret|auth)[=:]\s*['"]?([^&"'\s]{8,})/gi }
+    { name: "Token", regex: /(['"])?(\w+_)?(token|secret|auth)['"]?\s*[:=]\s*['"]?([^&"';\s]{8,})/gi },
+    { name: "OAuth Token", regex: /"(access_token|refresh_token|id_token)"\s*:\s*"[^"]{8,}"/gi }
   ];
   function escapeHtml$2(str) {
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
