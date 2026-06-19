@@ -3295,95 +3295,107 @@
       }
     } catch {
     }
+    function runRequestAnalysis(data) {
+      if (!data) return;
+      const body2 = $("#form-body2").val() || data.response?.content?.text || "";
+      const allText = getRequestText(data) + " " + body2;
+      const resHeaders = data.response?.headers || [];
+      const reqHeaders = data.request?.headers || null;
+      $("#security-summary").html(checkSecurityHeaders(resHeaders));
+      const corsResult = checkCORS(reqHeaders, resHeaders);
+      if (corsResult.status) {
+        $("#cors-summary").html(corsResult.html).addClass(corsResult.status);
+      }
+      const cookies = parseCookies(resHeaders);
+      if (cookies.length) {
+        $("#cookie-inspector").html(cookieHtml(cookies)).show();
+      } else {
+        $("#cookie-inspector").hide();
+      }
+      if (detectGraphQL(body2)) {
+        const $label = $("#form-label-body2");
+        if (!$label.find(".gql-badge").length) {
+          $label.append(' <span class="gql-badge" title="GraphQL query detected">GQL</span>');
+        }
+      } else {
+        $("#form-label-body2 .gql-badge").remove();
+      }
+      const jwts = findJWTInText(allText);
+      const $container = $("#jwt-inspector-container");
+      if (jwts.length) {
+        if (!$container.length) {
+          $("#security-summary").after('<div id="jwt-inspector-container"></div>');
+        }
+        $("#jwt-inspector-container").html(jwtToHtml(jwts));
+      } else {
+        $container.remove();
+      }
+      const authFindings = analyzeAuth(
+        data.request?.headers || null,
+        data.response?.headers || null,
+        data.request?.url || ""
+      );
+      const $authContainer = $("#auth-analysis-container");
+      if (authFindings.length) {
+        if (!$authContainer.length) {
+          $("#jwt-inspector-container").after('<div id="auth-analysis-container"></div>');
+        }
+        $("#auth-analysis-container").html(authFindingsToHtml(authFindings));
+      } else {
+        $authContainer.remove();
+      }
+      const scanResults = scanForReflections(
+        data.request?.url || "",
+        data.request?.postData ? typeof data.request.postData === "string" ? data.request.postData : data.request.postData.text || "" : "",
+        body2
+      );
+      const $scanContainer = $("#scan-results-container");
+      if (scanResults.length) {
+        if (!$scanContainer.length) {
+          $("#auth-analysis-container").after('<div id="scan-results-container"></div>');
+        }
+        $("#scan-results-container").html(scanResultsToHtml(scanResults));
+      } else {
+        $scanContainer.remove();
+      }
+      const secrets = scanForSecrets(allText);
+      if (secrets.length) {
+        const counts = {};
+        for (const s of secrets) {
+          counts[s.type] = (counts[s.type] || 0) + 1;
+        }
+        let warnHtml = "";
+        for (const type in counts) {
+          warnHtml += '<span class="sec-found">⚠ ' + type + ": " + counts[type] + "</span> ";
+        }
+        $("#secrets-warning").html(warnHtml);
+      } else {
+        $("#secrets-warning").html("");
+      }
+      const mimeCheck = (data.response?.content?.mimeType || "").toLowerCase();
+      const isText = mimeCheck.indexOf("text") >= 0 || mimeCheck.indexOf("json") >= 0 || mimeCheck.indexOf("xml") >= 0 || mimeCheck.indexOf("html") >= 0 || mimeCheck.indexOf("javascript") >= 0;
+      if (mimeCheck && !isText) {
+        $("#body-hex-btn").show();
+      } else {
+        $("#body-hex-btn").hide();
+      }
+    }
     const origEditReq = editRequest;
     const patchedEditReq = function(tr) {
-      origEditReq(tr);
       const id2 = tr ? parseInt(tr.attr("id") || "-1") : -1;
       const data = id2 > 0 ? values.requests[id2] : null;
+      if (data && data.getContent) {
+        const origGetContent = data.getContent;
+        data.getContent = function(callback) {
+          origGetContent(function(content, encoding) {
+            callback(content, encoding);
+            runRequestAnalysis(data);
+          });
+        };
+      }
+      origEditReq(tr);
       setTimeout(() => {
-        if (!data) return;
-        const body2 = data.response?.content?.text || "";
-        const allText = getRequestText(data) + " " + body2;
-        const resHeaders = data.response?.headers || [];
-        const reqHeaders = data.request?.headers || null;
-        $("#security-summary").html(checkSecurityHeaders(resHeaders));
-        const corsResult = checkCORS(reqHeaders, resHeaders);
-        if (corsResult.status) {
-          $("#cors-summary").html(corsResult.html).addClass(corsResult.status);
-        }
-        const cookies = parseCookies(resHeaders);
-        if (cookies.length) {
-          $("#cookie-inspector").html(cookieHtml(cookies)).show();
-        } else {
-          $("#cookie-inspector").hide();
-        }
-        if (detectGraphQL(body2)) {
-          const $label = $("#form-label-body2");
-          if (!$label.find(".gql-badge").length) {
-            $label.append(' <span class="gql-badge" title="GraphQL query detected">GQL</span>');
-          }
-        } else {
-          $("#form-label-body2 .gql-badge").remove();
-        }
-        const jwts = findJWTInText(allText);
-        const $container = $("#jwt-inspector-container");
-        if (jwts.length) {
-          if (!$container.length) {
-            $("#security-summary").after('<div id="jwt-inspector-container"></div>');
-          }
-          $("#jwt-inspector-container").html(jwtToHtml(jwts));
-        } else {
-          $container.remove();
-        }
-        const authFindings = analyzeAuth(
-          data.request?.headers || null,
-          data.response?.headers || null,
-          data.request?.url || ""
-        );
-        const $authContainer = $("#auth-analysis-container");
-        if (authFindings.length) {
-          if (!$authContainer.length) {
-            $("#jwt-inspector-container").after('<div id="auth-analysis-container"></div>');
-          }
-          $("#auth-analysis-container").html(authFindingsToHtml(authFindings));
-        } else {
-          $authContainer.remove();
-        }
-        const scanResults = scanForReflections(
-          data.request?.url || "",
-          data.request?.postData ? typeof data.request.postData === "string" ? data.request.postData : data.request.postData.text || "" : "",
-          body2
-        );
-        const $scanContainer = $("#scan-results-container");
-        if (scanResults.length) {
-          if (!$scanContainer.length) {
-            $("#auth-analysis-container").after('<div id="scan-results-container"></div>');
-          }
-          $("#scan-results-container").html(scanResultsToHtml(scanResults));
-        } else {
-          $scanContainer.remove();
-        }
-        const secrets = scanForSecrets(allText);
-        if (secrets.length) {
-          const counts = {};
-          for (const s of secrets) {
-            counts[s.type] = (counts[s.type] || 0) + 1;
-          }
-          let warnHtml = "";
-          for (const type in counts) {
-            warnHtml += '<span class="sec-found">⚠ ' + type + ": " + counts[type] + "</span> ";
-          }
-          $("#secrets-warning").html(warnHtml);
-        } else {
-          $("#secrets-warning").html("");
-        }
-        const mimeCheck = (data.response?.content?.mimeType || "").toLowerCase();
-        const isText = mimeCheck.indexOf("text") >= 0 || mimeCheck.indexOf("json") >= 0 || mimeCheck.indexOf("xml") >= 0 || mimeCheck.indexOf("html") >= 0 || mimeCheck.indexOf("javascript") >= 0;
-        if (mimeCheck && !isText) {
-          $("#body-hex-btn").show();
-        } else {
-          $("#body-hex-btn").hide();
-        }
+        runRequestAnalysis(data);
       }, 50);
     };
     window.editRequest = patchedEditReq;

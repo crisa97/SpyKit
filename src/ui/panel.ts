@@ -431,109 +431,127 @@ export function initPanel(): void {
   } catch { /* ignore */ }
 
   // ── Post-edit security analysis (GraphQL + JWT) ──
+  function runRequestAnalysis(data: CapturedEntry | null): void {
+    if (!data) return;
+    const body = $('#form-body2').val() as string || data.response?.content?.text || '';
+    const allText = getRequestText(data) + ' ' + body;
+
+    // Security header badges + CORS + Cookies
+    const resHeaders = data.response?.headers || [];
+    const reqHeaders = data.request?.headers || null;
+    $('#security-summary').html(checkSecurityHeaders(resHeaders));
+    const corsResult = checkCORS(reqHeaders, resHeaders);
+    if (corsResult.status) {
+      $('#cors-summary').html(corsResult.html).addClass(corsResult.status);
+    }
+    const cookies = parseCookies(resHeaders);
+    if (cookies.length) {
+      $('#cookie-inspector').html(cookieHtml(cookies)).show();
+    } else {
+      $('#cookie-inspector').hide();
+    }
+
+    // GraphQL badge
+    if (detectGraphQL(body)) {
+      const $label = $('#form-label-body2');
+      if (!$label.find('.gql-badge').length) {
+        $label.append(' <span class="gql-badge" title="GraphQL query detected">GQL</span>');
+      }
+    } else {
+      $('#form-label-body2 .gql-badge').remove();
+    }
+
+    // JWT Inspector
+    const jwts = findJWTInText(allText);
+    const $container = $('#jwt-inspector-container');
+    if (jwts.length) {
+      if (!$container.length) {
+        $('#security-summary').after('<div id="jwt-inspector-container"></div>');
+      }
+      $('#jwt-inspector-container').html(jwtToHtml(jwts));
+    } else {
+      $container.remove();
+    }
+
+    // Auth Analysis
+    const authFindings = analyzeAuth(
+      data.request?.headers || null,
+      data.response?.headers || null,
+      data.request?.url || ''
+    );
+    const $authContainer = $('#auth-analysis-container');
+    if (authFindings.length) {
+      if (!$authContainer.length) {
+        $('#jwt-inspector-container').after('<div id="auth-analysis-container"></div>');
+      }
+      $('#auth-analysis-container').html(authFindingsToHtml(authFindings));
+    } else {
+      $authContainer.remove();
+    }
+
+    // Passive Reflection Scan
+    const scanResults = scanForReflections(
+      data.request?.url || '',
+      (data.request?.postData ? (typeof data.request.postData === 'string' ? data.request.postData : data.request.postData.text || '') : ''),
+      body
+    );
+    const $scanContainer = $('#scan-results-container');
+    if (scanResults.length) {
+      if (!$scanContainer.length) {
+        $('#auth-analysis-container').after('<div id="scan-results-container"></div>');
+      }
+      $('#scan-results-container').html(scanResultsToHtml(scanResults));
+    } else {
+      $scanContainer.remove();
+    }
+
+    // Secrets detection
+    const secrets = scanForSecrets(allText);
+    if (secrets.length) {
+      const counts: { [key: string]: number } = {};
+      for (const s of secrets) {
+        counts[s.type] = (counts[s.type] || 0) + 1;
+      }
+      let warnHtml = '';
+      for (const type in counts) {
+        warnHtml += '<span class="sec-found">\u26A0 ' + type + ': ' + counts[type] + '</span> ';
+      }
+      $('#secrets-warning').html(warnHtml);
+    } else {
+      $('#secrets-warning').html('');
+    }
+
+    // Hex button show/hide
+    const mimeCheck = (data.response?.content?.mimeType || '').toLowerCase();
+    const isText = mimeCheck.indexOf('text') >= 0 || mimeCheck.indexOf('json') >= 0 || mimeCheck.indexOf('xml') >= 0 || mimeCheck.indexOf('html') >= 0 || mimeCheck.indexOf('javascript') >= 0;
+    if (mimeCheck && !isText) {
+      $('#body-hex-btn').show();
+    } else {
+      $('#body-hex-btn').hide();
+    }
+  }
+
   const origEditReq = editRequest;
   const patchedEditReq = function (tr: JQuery) {
-    origEditReq(tr);
     const id = tr ? parseInt(tr.attr('id') || '-1') : -1;
     const data = (id > 0) ? values.requests[id] : null;
+
+    // Wrap getContent to re-run analysis when async body loads
+    if (data && data.getContent) {
+      const origGetContent = data.getContent;
+      data.getContent = function (callback: (content: string, encoding: string) => void) {
+        origGetContent(function (content: string, encoding: string) {
+          callback(content, encoding);
+          runRequestAnalysis(data);
+        });
+      };
+    }
+
+    origEditReq(tr);
+
+    // Fast path: analysis runs 50ms later (body already available)
     setTimeout(() => {
-      if (!data) return;
-      const body = (data.response?.content?.text) || '';
-      const allText = getRequestText(data) + ' ' + body;
-
-      // Security header badges + CORS + Cookies
-      const resHeaders = data.response?.headers || [];
-      const reqHeaders = data.request?.headers || null;
-      $('#security-summary').html(checkSecurityHeaders(resHeaders));
-      const corsResult = checkCORS(reqHeaders, resHeaders);
-      if (corsResult.status) {
-        $('#cors-summary').html(corsResult.html).addClass(corsResult.status);
-      }
-      const cookies = parseCookies(resHeaders);
-      if (cookies.length) {
-        $('#cookie-inspector').html(cookieHtml(cookies)).show();
-      } else {
-        $('#cookie-inspector').hide();
-      }
-
-      // GraphQL badge
-      if (detectGraphQL(body)) {
-        const $label = $('#form-label-body2');
-        if (!$label.find('.gql-badge').length) {
-          $label.append(' <span class="gql-badge" title="GraphQL query detected">GQL</span>');
-        }
-      } else {
-        $('#form-label-body2 .gql-badge').remove();
-      }
-
-      // JWT Inspector
-      const jwts = findJWTInText(allText);
-      const $container = $('#jwt-inspector-container');
-      if (jwts.length) {
-        if (!$container.length) {
-          $('#security-summary').after('<div id="jwt-inspector-container"></div>');
-        }
-        $('#jwt-inspector-container').html(jwtToHtml(jwts));
-      } else {
-        $container.remove();
-      }
-
-      // Auth Analysis
-      const authFindings = analyzeAuth(
-        data.request?.headers || null,
-        data.response?.headers || null,
-        data.request?.url || ''
-      );
-      const $authContainer = $('#auth-analysis-container');
-      if (authFindings.length) {
-        if (!$authContainer.length) {
-          $('#jwt-inspector-container').after('<div id="auth-analysis-container"></div>');
-        }
-        $('#auth-analysis-container').html(authFindingsToHtml(authFindings));
-      } else {
-        $authContainer.remove();
-      }
-
-      // Passive Reflection Scan
-      const scanResults = scanForReflections(
-        data.request?.url || '',
-        (data.request?.postData ? (typeof data.request.postData === 'string' ? data.request.postData : data.request.postData.text || '') : ''),
-        body
-      );
-      const $scanContainer = $('#scan-results-container');
-      if (scanResults.length) {
-        if (!$scanContainer.length) {
-          $('#auth-analysis-container').after('<div id="scan-results-container"></div>');
-        }
-        $('#scan-results-container').html(scanResultsToHtml(scanResults));
-      } else {
-        $scanContainer.remove();
-      }
-
-      // Secrets detection
-      const secrets = scanForSecrets(allText);
-      if (secrets.length) {
-        const counts: { [key: string]: number } = {};
-        for (const s of secrets) {
-          counts[s.type] = (counts[s.type] || 0) + 1;
-        }
-        let warnHtml = '';
-        for (const type in counts) {
-          warnHtml += '<span class="sec-found">\u26A0 ' + type + ': ' + counts[type] + '</span> ';
-        }
-        $('#secrets-warning').html(warnHtml);
-      } else {
-        $('#secrets-warning').html('');
-      }
-
-      // Hex button show/hide
-      const mimeCheck = (data.response?.content?.mimeType || '').toLowerCase();
-      const isText = mimeCheck.indexOf('text') >= 0 || mimeCheck.indexOf('json') >= 0 || mimeCheck.indexOf('xml') >= 0 || mimeCheck.indexOf('html') >= 0 || mimeCheck.indexOf('javascript') >= 0;
-      if (mimeCheck && !isText) {
-        $('#body-hex-btn').show();
-      } else {
-        $('#body-hex-btn').hide();
-      }
+      runRequestAnalysis(data);
     }, 50);
   };
   (window as any).editRequest = patchedEditReq;
